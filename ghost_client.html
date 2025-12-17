@@ -312,6 +312,18 @@
 
                 <div style="margin-top: 10px;">
 
+                    <!-- Capture Engine Selector -->
+                    <div class="control-group" style="margin-top: 8px;">
+                        <label>📷 截图引擎: <span id="engineStatus" style="color: #00ff88;">加载中...</span></label>
+                        <select id="engineSelect" onchange="switchEngine(this.value)"
+                            style="width: 100%; padding: 6px;">
+                            <option value="auto">自动 (最佳可用)</option>
+                            <option value="dxcam">DXcam (最快, GPU)</option>
+                            <option value="mss">mss (跨平台)</option>
+                            <option value="legacy">Legacy (PIL)</option>
+                        </select>
+                    </div>
+
                     <!-- App Launcher -->
                     <div class="control-group" style="margin-top: 12px;">
                         <label>🚀 快速启动</label>
@@ -990,6 +1002,58 @@
                 addLog('帧率设置失败', true);
             }
         }
+
+        // ==================== Capture Engine Control ====================
+        async function refreshEngineStatus() {
+            try {
+                const res = await fetch(`${API}/capture_engine`);
+                const data = await res.json();
+
+                const statusEl = document.getElementById('engineStatus');
+                const selectEl = document.getElementById('engineSelect');
+
+                if (statusEl) {
+                    statusEl.textContent = data.current;
+                    statusEl.style.color = data.current === 'dxcam' ? '#00ff88' :
+                        data.current === 'mss' ? '#00d9ff' : '#ff9500';
+                }
+
+                if (selectEl) {
+                    selectEl.value = data.setting;
+                    // Disable unavailable options
+                    Array.from(selectEl.options).forEach(opt => {
+                        if (opt.value === 'dxcam') opt.disabled = !data.available.dxcam;
+                        if (opt.value === 'mss') opt.disabled = !data.available.mss;
+                    });
+                }
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function switchEngine(engine) {
+            try {
+                const res = await fetch(`${API}/capture_engine`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ engine: engine })
+                });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    addLog(`✅ 引擎切换: ${data.active}`);
+                    refreshEngineStatus();
+                } else {
+                    addLog(`❌ ${data.message}`, true);
+                    refreshEngineStatus();  // Reset select to actual value
+                }
+            } catch (e) {
+                addLog('引擎切换失败', true);
+            }
+        }
+
+        // Refresh engine status on connect
+        setTimeout(refreshEngineStatus, 1000);
 
         // ==================== Shortcut & Modifier Logic ====================
         const modifiers = { ctrl: false, alt: false, shift: false, win: false };

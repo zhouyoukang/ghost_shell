@@ -1,5 +1,5 @@
-# Ghost Shell Server v2.1 - Background Window Capture
-# Supports capturing windows even when not in foreground
+# Ghost Shell Server v2.2 - Multi-mode Screen Capture
+# Supports: DXcam (fastest), mss (cross-platform), legacy (pywin32)
 
 # CRITICAL: Set DPI awareness BEFORE any other imports
 # This must be the first thing that runs to fix multi-monitor coordinate issues
@@ -29,15 +29,52 @@ from typing import Optional
 import subprocess
 from PIL import Image
 
-# Try to import win32 for background capture
+# Optional: numpy and cv2 for DXcam mode
+try:
+    import numpy as np
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    np = None
+    cv2 = None
+
+# ==================== Capture Library Detection ====================
+# Try to import DXcam (fastest, Windows-only, GPU-accelerated)
+DXCAM_AVAILABLE = False
+dxcam_camera = None
+try:
+    import dxcam
+    DXCAM_AVAILABLE = True
+    print("✅ DXcam available (GPU-accelerated capture)")
+except ImportError:
+    print("⚠️ DXcam not installed. Install with: pip install dxcam")
+
+# Try to import mss (fast, cross-platform)
+MSS_AVAILABLE = False
+mss_sct = None
+try:
+    import mss
+    MSS_AVAILABLE = True
+    mss_sct = mss.mss()
+    print("✅ mss available (cross-platform capture)")
+except ImportError:
+    print("⚠️ mss not installed. Install with: pip install mss")
+
+# Try to import win32 for background capture (legacy)
 try:
     import win32gui
     import win32ui
     import win32con
     BACKGROUND_CAPTURE_AVAILABLE = True
+    print("✅ pywin32 available (legacy capture)")
 except ImportError:
     BACKGROUND_CAPTURE_AVAILABLE = False
-    print("WARNING: pywin32 not installed. Background capture disabled.")
+    print("⚠️ pywin32 not installed. Background capture disabled.")
+
+# ==================== Capture Mode Configuration ====================
+# Available modes: 'dxcam' (fastest), 'mss' (cross-platform), 'legacy' (pywin32)
+CAPTURE_ENGINE = "auto"  # 'auto' = use best available
 
 app = FastAPI(title="Ghost Shell Server v2.0")
 
@@ -144,16 +181,89 @@ def activate_window(win):
         return False
 
 def simple_capture(hwnd=None, rect=None):
-    """Simple capture using ImageGrab - works for all monitors (v2_simplified approach)."""
-    from PIL import ImageGrab
+    """
+    Multi-mode capture with fallback chain.
+    Modes: 'dxcam' (fastest), 'mss' (cross-platform), 'legacy' (PIL.ImageGrab)
+    """
+    global CAPTURE_ENGINE, dxcam_camera
+    
+    # Determine which engine to use
+    engine = CAPTURE_ENGINE
+    if engine == "auto":
+        if DXCAM_AVAILABLE:
+            engine = "dxcam"
+        elif MSS_AVAILABLE:
+            engine = "mss"
+        else:
+            engine = "legacy"
+    
     try:
-        if rect is None and hwnd:
+        # Get rect if not provided
+        if rect is None and hwnd and BACKGROUND_CAPTURE_AVAILABLE:
             rect = win32gui.GetWindowRect(hwnd)
-        if rect and rect[2] > rect[0] and rect[3] > rect[1]:
-            return ImageGrab.grab(bbox=rect, all_screens=True)
+        
+        if not rect or rect[2] <= rect[0] or rect[3] <= rect[1]:
+            return None
+        
+        left, top, right, bottom = rect
+        width = right - left
+        height = bottom - top
+        
+        # ==================== DXcam Mode (Fastest) ====================
+        if engine == "dxcam" and DXCAM_AVAILABLE and CV2_AVAILABLE:
+            try:
+                # Initialize camera if needed
+                if dxcam_camera is None:
+                    dxcam_camera = dxcam.create(output_idx=0, output_color="BGR")
+                
+                # DXcam captures full screen, we need to crop
+                frame = dxcam_camera.grab()
+                if frame is not None:
+                    # Crop to window region
+                    cropped = frame[top:bottom, left:right]
+                    # Convert BGR to RGB for PIL
+                    rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+                    return Image.fromarray(rgb)
+            except Exception as e:
+                print(f"[CAPTURE] DXcam error: {e}, falling back to mss")
+                engine = "mss"  # Fallback
+        
+        # ==================== mss Mode (Fast, Cross-platform) ====================
+        if engine == "mss" and MSS_AVAILABLE:
+            try:
+                monitor = {
+                    "left": left,
+                    "top": top,
+                    "width": width,
+                    "height": height
+                }
+                sct_img = mss_sct.grab(monitor)
+                # Convert to PIL Image
+                img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+                return img
+            except Exception as e:
+                print(f"[CAPTURE] mss error: {e}, falling back to legacy")
+                engine = "legacy"  # Fallback
+        
+        # ==================== Legacy Mode (PIL.ImageGrab) ====================
+        from PIL import ImageGrab
+        return ImageGrab.grab(bbox=rect, all_screens=True)
+        
     except Exception as e:
         print(f"[CAPTURE] simple_capture error: {e}")
     return None
+
+
+def get_current_capture_engine():
+    """Get the currently active capture engine."""
+    if CAPTURE_ENGINE == "auto":
+        if DXCAM_AVAILABLE and CV2_AVAILABLE:
+            return "dxcam"
+        elif MSS_AVAILABLE:
+            return "mss"
+        else:
+            return "legacy"
+    return CAPTURE_ENGINE
 
 def get_target_window():
     """Find target window - locked or foreground (auto-follow).
@@ -328,7 +438,67 @@ def root():
 
 @app.get("/api")
 def api_info():
-    return {"status": "Ghost Shell 服务器运行中", "version": "2.1", "endpoints": ["/capture", "/stream", "/interact", "/status", "/windows", "/lock"]}
+    return {
+        "status": "Ghost Shell 服务器运行中", 
+        "version": "2.2", 
+        "capture_engine": get_current_capture_engine(),
+        "available_engines": {
+            "dxcam": DXCAM_AVAILABLE,
+            "mss": MSS_AVAILABLE,
+            "legacy": True
+        },
+        "endpoints": ["/capture", "/stream", "/interact", "/status", "/windows", "/lock", "/capture_engine"]
+    }
+
+class CaptureEngineRequest(BaseModel):
+    engine: str  # 'auto', 'dxcam', 'mss', 'legacy'
+
+@app.get("/capture_engine")
+def get_capture_engine():
+    """获取当前截图引擎状态"""
+    return {
+        "current": get_current_capture_engine(),
+        "setting": CAPTURE_ENGINE,
+        "available": {
+            "dxcam": DXCAM_AVAILABLE,
+            "mss": MSS_AVAILABLE,
+            "legacy": True
+        }
+    }
+
+@app.post("/capture_engine")
+def set_capture_engine(req: CaptureEngineRequest):
+    """切换截图引擎"""
+    global CAPTURE_ENGINE, dxcam_camera
+    
+    valid_engines = ["auto", "dxcam", "mss", "legacy"]
+    if req.engine not in valid_engines:
+        return {"status": "error", "message": f"无效引擎，可选: {valid_engines}"}
+    
+    if req.engine == "dxcam" and not DXCAM_AVAILABLE:
+        return {"status": "error", "message": "DXcam 未安装，请运行: pip install dxcam"}
+    
+    if req.engine == "mss" and not MSS_AVAILABLE:
+        return {"status": "error", "message": "mss 未安装，请运行: pip install mss"}
+    
+    old_engine = CAPTURE_ENGINE
+    CAPTURE_ENGINE = req.engine
+    
+    # Reset dxcam camera when switching away
+    if old_engine == "dxcam" and req.engine != "dxcam" and dxcam_camera is not None:
+        try:
+            dxcam_camera.stop()
+        except:
+            pass
+        dxcam_camera = None
+    
+    print(f"[ENGINE] Switched from {old_engine} to {req.engine}")
+    return {
+        "status": "success", 
+        "engine": req.engine,
+        "active": get_current_capture_engine(),
+        "message": f"已切换到 {req.engine}"
+    }
 
 @app.get("/windows")
 def list_windows():
