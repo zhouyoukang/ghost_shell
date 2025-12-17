@@ -719,8 +719,8 @@ async def stream(websocket: WebSocket):
                 skipped = False
                 if hwnd and rect:
                     window_title = win32gui.GetWindowText(hwnd)
-                    # Skip Ghost Shell itself and system windows
-                    skip_titles = ["Ghost Shell", "任务栏", "Program Manager"]
+                    # Skip Ghost Shell itself and system windows, and prevent recursion with IDE
+                    skip_titles = ["Ghost Shell", "任务栏", "Program Manager", "Antigravity", "AIOT", "Visual Studio Code"]
                     if window_title and any(skip in window_title for skip in skip_titles):
                         skipped = True
                     else:
