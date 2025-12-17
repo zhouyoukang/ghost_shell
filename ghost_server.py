@@ -745,15 +745,22 @@ async def stream(websocket: WebSocket):
                 # 记住当前正在显示的窗口（用于点击时定位）
                 CURRENT_DISPLAY_WINDOW = window_title
                 
-                # 直接发送原始图像，不缩放
+                # [PERFORMANCE] Downscale image to boost FPS
+                # 1080p -> 540p reduces data by 4x
+                target_w = int(width * 0.5)
+                target_h = int(height * 0.5)
+                # 使用 BILINEAR 兼顾速度和质量 (或者 NEAREST 极速但有锯齿)
+                screenshot = screenshot.resize((target_w, target_h), Image.BILINEAR)
+
                 img_byte_arr = io.BytesIO()
-                screenshot.save(img_byte_arr, format='JPEG', quality=85)
+                # Reduce JPEG quality to 50 for video stream (faster encoding)
+                screenshot.save(img_byte_arr, format='JPEG', quality=50)
                 img_byte_arr.seek(0)
                 img_base64 = base64.b64encode(img_byte_arr.read()).decode()
                 await websocket.send_json({
                     "type": "frame",
                     "data": img_base64,
-                    "width": width,
+                    "width": width,  # Send original width for client coordinate mapping
                     "height": height,
                     "window": window_title[:50] if window_title else "未知"
                 })
