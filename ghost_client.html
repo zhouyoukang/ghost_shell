@@ -1108,7 +1108,7 @@
         }
 
         // ==================== Shortcut & Modifier Logic ====================
-        const modifiers = { ctrl: false, alt: false, shift: false };
+        const modifiers = { ctrl: false, alt: false, shift: false, win: false };
 
         function toggleModifier(key) {
             modifiers[key] = !modifiers[key];
@@ -1576,7 +1576,7 @@
             }
         }
 
-        // Two-Layer Pie Menu Structure
+        // Two-Layer Pie Menu Structure (Optimized 6 Categories)
         const pieCategories = [
             {
                 label: '⌨️',
@@ -1584,7 +1584,20 @@
                 items: [
                     { label: 'Ctrl', action: 'mod', value: 'ctrl' },
                     { label: 'Alt', action: 'mod', value: 'alt' },
-                    { label: 'Shift', action: 'mod', value: 'shift' }
+                    { label: 'Shift', action: 'mod', value: 'shift' },
+                    { label: 'Win', action: 'mod', value: 'win' }
+                ]
+            },
+            {
+                label: '📋',
+                name: '剪贴板',
+                items: [
+                    { label: '复制', action: 'custom', fn: syncClipboardToMobile },
+                    { label: '粘贴', action: 'custom', fn: syncClipboardToPC },
+                    { label: '剪切', action: 'hotkey', value: 'ctrl+x' },
+                    { label: '全选', action: 'hotkey', value: 'ctrl+a' },
+                    { label: '撤销', action: 'hotkey', value: 'ctrl+z' },
+                    { label: '重做', action: 'hotkey', value: 'ctrl+y' }
                 ]
             },
             {
@@ -1594,26 +1607,41 @@
                     { label: 'ESC', action: 'key', value: 'esc' },
                     { label: 'Tab', action: 'key', value: 'tab' },
                     { label: 'Enter', action: 'key', value: 'enter' },
-                    { label: 'Back', action: 'key', value: 'backspace' }
+                    { label: 'Del', action: 'key', value: 'delete' },
+                    { label: '保存', action: 'hotkey', value: 'ctrl+s' },
+                    { label: '查找', action: 'hotkey', value: 'ctrl+f' }
                 ]
             },
             {
-                label: '📋',
-                name: '剪贴板',
+                label: '🔀',
+                name: '导航',
                 items: [
-                    { label: 'Copy', action: 'custom', fn: syncClipboardToMobile },
-                    { label: 'Paste', action: 'custom', fn: syncClipboardToPC },
-                    { label: 'Cut', action: 'hotkey', value: 'ctrl+x' }
+                    { label: 'Home', action: 'key', value: 'home' },
+                    { label: 'End', action: 'key', value: 'end' },
+                    { label: 'PgUp', action: 'key', value: 'pageup' },
+                    { label: 'PgDn', action: 'key', value: 'pagedown' }
                 ]
             },
             {
                 label: '🪟',
                 name: '窗口',
                 items: [
-                    { label: 'Alt+Tab', action: 'hotkey', value: 'alt+tab' },
-                    { label: 'Win+D', action: 'hotkey', value: 'win+d' },
-                    { label: 'Alt+F4', action: 'hotkey', value: 'alt+f4' },
-                    { label: 'Win+E', action: 'hotkey', value: 'win+e' }
+                    { label: '切换', action: 'hotkey', value: 'alt+tab' },
+                    { label: '桌面', action: 'hotkey', value: 'win+d' },
+                    { label: '关闭', action: 'hotkey', value: 'alt+f4' },
+                    { label: '最大', action: 'hotkey', value: 'win+up' },
+                    { label: '最小', action: 'hotkey', value: 'win+down' }
+                ]
+            },
+            {
+                label: '🔧',
+                name: '系统',
+                items: [
+                    { label: '任务管理', action: 'hotkey', value: 'ctrl+shift+esc' },
+                    { label: '运行', action: 'hotkey', value: 'win+r' },
+                    { label: '设置', action: 'hotkey', value: 'win+i' },
+                    { label: '截图', action: 'hotkey', value: 'win+shift+s' },
+                    { label: '资源管理', action: 'hotkey', value: 'win+e' }
                 ]
             }
         ];
@@ -1643,27 +1671,27 @@
         let floatElStartX = 0;
         let floatElStartY = 0;
 
-        const PIE_INNER_RADIUS = 60;
-        const PIE_OUTER_RADIUS = 120;
+        const PIE_INNER_RADIUS = 50;  // Compact inner ring
+        const PIE_OUTER_RADIUS = 100; // Close outer ring
 
         function createPieSectors() {
             pieSectors.innerHTML = '';
 
-            // Determine Angles based on dockSide
+            // Half-circle angles based on dockSide (160° total, stays within 180°)
             let startAngle, endAngle;
 
             if (dockSide === 'right') {
-                startAngle = 110;
-                endAngle = 250;
+                startAngle = 100;  // Just past top
+                endAngle = 260;    // Just past bottom
             } else {
-                startAngle = -70;
-                endAngle = 70;
+                startAngle = -80;  // Just past top (left side)
+                endAngle = 80;     // Just past bottom (left side)
             }
 
             const totalAngle = endAngle - startAngle;
             const categoryStepAngle = totalAngle / (pieCategories.length - 1);
 
-            // Create Inner Ring (Categories)
+            // Create Inner Ring (Categories) - smaller buttons for 6 items
             pieCategories.forEach((cat, index) => {
                 const angle = startAngle + (index * categoryStepAngle);
                 const radian = angle * (Math.PI / 180);
@@ -1675,15 +1703,16 @@
                 el.className = 'pie-category';
                 el.textContent = cat.label;
                 el.style.cssText = `
-                    position: absolute; width: 45px; height: 45px;
-                    left: ${x - 22.5}px; top: ${y - 22.5}px;
+                    position: absolute; width: 36px; height: 36px;
+                    left: ${x - 18}px; top: ${y - 18}px;
                     background: rgba(40, 50, 70, 0.9); border: 2px solid #556;
                     border-radius: 50%; display: flex; align-items: center; justify-content: center;
-                    font-size: 1.2rem; color: #fff; transition: all 0.15s;
+                    font-size: 1rem; color: #fff; transition: all 0.15s;
                     z-index: 10;
                 `;
                 el.dataset.catIndex = index;
                 el.dataset.type = 'category';
+                el.dataset.angle = angle; // Store angle for outer ring positioning
                 pieSectors.appendChild(el);
             });
 
@@ -1700,22 +1729,51 @@
             pieAvailable = cat.items; // Update flat list for action execution
             activeCategory = catIndex;
 
-            // Determine Angles
-            let startAngle, endAngle;
+            // Get the selected category's angle from stored data
+            const catEl = document.querySelector(`.pie-category[data-cat-index="${catIndex}"]`);
+            const categoryAngle = catEl ? parseFloat(catEl.dataset.angle) : 180;
+
+            // Determine half-circle boundaries based on dockSide
+            let minAngle, maxAngle;
             if (dockSide === 'right') {
-                startAngle = 110;
-                endAngle = 250;
+                minAngle = 100;
+                maxAngle = 260;
             } else {
-                startAngle = -70;
-                endAngle = 70;
+                minAngle = -80;
+                maxAngle = 80;
             }
 
-            const totalAngle = endAngle - startAngle;
-            const itemStepAngle = cat.items.length > 1 ? totalAngle / (cat.items.length - 1) : 0;
+            // Calculate outer ring angles extending from category position
+            // Items spread outward from category, with 25° spacing
+            const itemAngleStep = 25;
+            const itemCount = cat.items.length;
+            const totalSpread = (itemCount - 1) * itemAngleStep;
 
-            // Create Outer Ring (Items)
+            // Center the spread around the category angle
+            let startAngle = categoryAngle - totalSpread / 2;
+            let endAngle = categoryAngle + totalSpread / 2;
+
+            // Boundary adjustment: shift if exceeding half-circle limits
+            if (startAngle < minAngle) {
+                const shift = minAngle - startAngle;
+                startAngle += shift;
+                endAngle += shift;
+            }
+            if (endAngle > maxAngle) {
+                const shift = endAngle - maxAngle;
+                startAngle -= shift;
+                endAngle -= shift;
+            }
+            // Clamp again after shift
+            startAngle = Math.max(startAngle, minAngle);
+            endAngle = Math.min(endAngle, maxAngle);
+
+            const actualSpread = endAngle - startAngle;
+            const itemSpacing = itemCount > 1 ? actualSpread / (itemCount - 1) : 0;
+
+            // Create Outer Ring (Items) - compact buttons
             cat.items.forEach((item, index) => {
-                const angle = startAngle + (index * itemStepAngle);
+                const angle = startAngle + (index * itemSpacing);
                 const radian = angle * (Math.PI / 180);
 
                 const x = Math.cos(radian) * PIE_OUTER_RADIUS;
@@ -1725,20 +1783,22 @@
                 el.className = 'pie-outer-item';
                 el.textContent = item.label;
                 el.style.cssText = `
-                    position: absolute; width: 50px; height: 50px;
-                    left: ${x - 25}px; top: ${y - 25}px;
+                    position: absolute; width: 48px; height: 48px;
+                    left: ${x - 24}px; top: ${y - 24}px;
                     background: rgba(30, 40, 60, 0.85); border: 1px solid #445;
                     border-radius: 50%; display: flex; align-items: center; justify-content: center;
-                    font-size: 0.7rem; color: #ccc; transition: all 0.1s;
+                    font-size: 0.65rem; color: #ccc; transition: all 0.1s;
                     animation: pieExpand 0.2s ease-out;
+                    text-align: center; line-height: 1.1;
                 `;
                 el.dataset.itemIndex = index;
                 el.dataset.type = 'item';
+                el.dataset.angle = angle; // Store for selection logic
                 pieSectors.appendChild(el);
             });
 
             // Return config for outer ring selection
-            return { startAngle, stepAngle: itemStepAngle };
+            return { startAngle, stepAngle: itemSpacing };
         }
 
         let pieConfig = createPieSectors();
@@ -1848,12 +1908,12 @@
                 let c = checkAngle % 360;
                 if (c < 0) c += 360;
 
-                if (distance < 30) {
+                if (distance < 25) {
                     // Dead zone at center
                     activeSectorIndex = -1;
                     highlightCategory(-1);
-                } else if (distance < 90) {
-                    // INNER RING: Category Selection
+                } else if (distance < 75) {
+                    // INNER RING: Category Selection (25-75px)
                     activeSectorIndex = -1; // Clear outer selection
 
                     let bestDiff = 999;
