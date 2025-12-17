@@ -675,7 +675,10 @@ async def stream(websocket: WebSocket):
             screenshot = None
             width, height = 800, 600
             window_title = "未知"
-            
+            skipped = False
+            hwnd = None
+            rect = None
+
             # Check if we have a locked window
             if LOCKED_WINDOW_TITLE:
                 # Locked mode: use the locked window
@@ -713,11 +716,14 @@ async def stream(websocket: WebSocket):
             else:
                 # Auto-detect mode: use v2_simplified direct approach
                 hwnd, rect = get_foreground_hwnd_and_rect()
+                skipped = False
                 if hwnd and rect:
                     window_title = win32gui.GetWindowText(hwnd)
                     # Skip Ghost Shell itself and system windows
                     skip_titles = ["Ghost Shell", "任务栏", "Program Manager"]
-                    if window_title and not any(skip in window_title for skip in skip_titles):
+                    if window_title and any(skip in window_title for skip in skip_titles):
+                        skipped = True
+                    else:
                         # Optimize: Try fast BitBlt capture first if available (much faster than ImageGrab)
                         if BACKGROUND_CAPTURE_AVAILABLE:
                             try:
@@ -764,9 +770,12 @@ async def stream(websocket: WebSocket):
                     "height": height,
                     "window": window_title[:50] if window_title else "未知"
                 })
-            elif not (hwnd and rect):
+            elif skipped:
+                # Do nothing if skipped (e.g. self-capture)
+                pass
+            elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
                  await websocket.send_json({"type": "error", "message": "未找到目标窗口"})
-            else:
+            elif not screenshot and not LOCKED_WINDOW_TITLE:
                 await websocket.send_json({"type": "error", "message": f"截图失败 (Engine: {get_current_capture_engine()})"})
             
             # Smart delay: subtract actual processing time from target delay
