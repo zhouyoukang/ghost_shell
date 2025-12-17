@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 强制禁用缓存 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Ghost Shell - AI 远程控制</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: #16213e;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #0f3460;
+        }
+
+        h1 {
+            font-size: 1.2rem;
+            color: #00d9ff;
+        }
+
+        .status {
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            border-radius: 20px;
+        }
+
+        .status.connected {
+            background: #0f3460;
+            color: #00ff88;
+        }
+
+        .status.disconnected {
+            background: #3d0000;
+            color: #ff4444;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            padding: 15px;
+            gap: 15px;
+        }
+
+        .screen-container {
+            flex: 1;
+            background: #0f0f23;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        #screen {
+            max-width: 100%;
+            max-height: calc(100vh - 120px);
+            cursor: crosshair;
+        }
+
+        .controls {
+            width: 260px;
+            background: #16213e;
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+        }
+
+        .control-group {
+            margin-bottom: 4px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 4px;
+            color: #888;
+            font-size: 0.75rem;
+        }
+
+        input,
+        button,
+        select {
+            width: 100%;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        input,
+        select {
+            background: #0f0f23;
+            color: #fff;
+            border: 1px solid #0f3460;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: #00d9ff;
+        }
+
+        button {
+            background: linear-gradient(135deg, #0f3460, #16213e);
+            color: #00d9ff;
+            cursor: pointer;
+            border: 1px solid #0f3460;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #0f3460;
+        }
+
+        button.primary {
+            background: linear-gradient(135deg, #00d9ff, #0066ff);
+            color: #fff;
+            border: none;
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #ff4444, #cc0000);
+            color: #fff;
+            border: none;
+        }
+
+        .log {
+            flex: 1;
+            background: #0f0f23;
+            border-radius: 6px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 0.7rem;
+            overflow-y: auto;
+            max-height: 150px;
+            color: #00ff88;
+        }
+
+        .log-entry {
+            margin: 2px 0;
+        }
+
+        .log-entry.error {
+            color: #ff4444;
+        }
+
+        .fps {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+        }
+
+        .window-info {
+            font-size: 0.7rem;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .locked {
+            color: #00ff88;
+        }
+
+        @media (max-width: 800px) {
+            main {
+                flex-direction: column;
+            }
+
+            .controls {
+                width: 100%;
+                max-height: 300px;
+            }
+        }
+
+        /* Touch ripple animation */
+        @keyframes ripple {
+            0% {
+                transform: scale(0.5);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>🔮 Ghost Shell</h1>
+        <div id="status" class="status disconnected">未连接</div>
+    </header>
+    <main>
+        <div class="screen-container">
+            <img id="screen" src="" alt="远程画面">
+            <div class="fps" id="fps">0 FPS</div>
+        </div>
+        <div class="controls">
+            <!-- Row 1: Voice + Fullscreen + Adapt -->
+            <div style="display: flex; gap: 6px;">
+                <button id="voiceBtn" onclick="toggleVoice()" class="primary" style="flex: 1; padding: 10px;">
+                    🎤 语音
+                </button>
+                <button id="fullscreenBtn" onclick="toggleFullscreen()" style="flex: 1; padding: 10px;">
+                    🔲 全屏
+                </button>
+                <button id="adaptBtn" onclick="toggleAdapt()" style="flex: 1; padding: 10px;">
+                    📐 适配
+                </button>
+            </div>
+
+            <!-- Row 2: Window Select + Lock + Close -->
+            <div style="display: flex; gap: 6px; margin-top: 6px; align-items: center;">
+                <!-- Native Select Dropdown -->
+                <select id="windowSelect" onchange="handleWindowSelect()"
+                    style="flex: 2; padding: 8px; font-size: 0.85rem;">
+                    <option value="">🔍 自动检测...</option>
+                </select>
+
+                <button id="lockBtn" onclick="toggleLock()" style="flex: 1; padding: 10px;">
+                    🔒 锁定
+                </button>
+
+                <!-- Close Current Window Button -->
+                <button id="closeBtn" onclick="closeCurrentWindow()"
+                    style="flex: 1; padding: 10px; background: #661111; border: 1px solid #ff4444; color: #ff6b6b; cursor: pointer; border-radius: 4px; font-size: 0.85rem;"
+                    title="关闭当前窗口">
+                    ✕ 关闭
+                </button>
+            </div>
+
+            <!-- Hidden input for keyboard capture -->
+            <input type="text" id="hiddenKeyboardInput" style="position: absolute; left: -9999px; opacity: 0;"
+                oninput="onRealtimeInput(event)" onkeydown="onRealtimeKeyDown(event)" onblur="onKeyboardBlur()"
+                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+            <!-- Touch hints for mobile -->
+            <div style="font-size: 0.65rem; color: #666; text-align: center; margin: 8px 0;">
+                📱 点击=左键 | 双击=右键 | 快滑=滚动 | 按住拖=连续滚 | 双指=缩放
+            </div>
+
+            <!-- Collapsible advanced section -->
+            <details style="margin-top: 8px;">
+                <summary style="cursor: pointer; color: #00d9ff; font-size: 0.85rem;">⚙️ 更多选项</summary>
+
+                <div style="margin-top: 10px;">
+
+                    <!-- App Launcher -->
+                    <div class="control-group" style="margin-top: 12px;">
+                        <label>🚀 快速启动</label>
+                        <input type="text" id="appInput" placeholder="输入软件名 (如: chrome)"
+                            onkeydown="if(event.key==='Enter')openApp()">
+                    </div>
+                    <button onclick="openApp()">打开软件</button>
+
+                    <!-- FPS Control -->
+                    <div class="control-group" style="margin-top: 12px;">
+                        <label>帧率: <span id="fpsValue">30</span> FPS</label>
+                        <input type="range" id="fpsSlider" min="5" max="60" value="30"
+                            oninput="updateFpsTarget(this.value)" style="width: 100%;">
+                    </div>
+                </div>
+            </details>
+
+            <!-- Compact log -->
+            <div class="control-group" style="margin-top: 8px;">
+                <div class="log" id="log" style="max-height: 80px; font-size: 0.65rem;"></div>
+            </div>
+
+            <!-- Current window indicator -->
+            <div class="window-info" style="font-size: 0.7rem; text-align: center;">
+                当前: <span id="currentWindow">-</span>
+            </div>
+        </div>
+    </main>
+    <script>
+        let ws = null;
+        let frameCount = 0;
+        let lastFpsTime = Date.now();
+        let windowRefreshTimer = null;  // 窗口列表自动刷新定时器
+        let serverWindowWidth = 0;      // 服务端发送的窗口宽度
+        let serverWindowHeight = 0;     // 服务端发送的窗口高度
+        const screen = document.getElementById('screen');
+        const status = document.getElementById('status');
+        const log = document.getElementById('log');
+        const fpsDisplay = document.getElementById('fps');
+        const serverInput = null; // Removed server input
+
+        // Auto-detect server URL
+        // Prefer 127.0.0.1 over localhost to avoid IPv6 issues
+        let hostname = window.location.hostname || 'localhost';
+        if (hostname === 'localhost') hostname = '127.0.0.1';
+
+        const API = `http://${hostname}:8000`; // Not using window.location.host so we can force IP if needed
+
+        function addLog(msg, isError = false) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry' + (isError ? ' error' : '');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+            if (log.children.length > 50) log.removeChild(log.firstChild);
+        }
+
+        // Speech Recognition Setup
+        let recognition = null;
+        let isListening = false;
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = 'zh-CN'; // Chinese language
+
+            recognition.onstart = () => {
+                isListening = true;
+                document.getElementById('voiceBtn').textContent = '🔴 正在听...';
+                document.getElementById('voiceBtn').classList.add('danger');
+                addLog('语音识别已启动，请说话...');
+            };
+
+            recognition.onresult = (event) => {
+                let transcript = '';
+                for (let i = 0; i < event.results.length; i++) {
+                    transcript += event.results[i][0].transcript;
+                }
+                document.getElementById('textInput').value = transcript;
+
+                // If result is final, auto-send
+                if (event.results[event.results.length - 1].isFinal) {
+                    addLog(`识别结果: "${transcript}"`);
+                }
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                document.getElementById('voiceBtn').textContent = '🎤 语音输入';
+                document.getElementById('voiceBtn').classList.remove('danger');
+            };
+
+            recognition.onerror = (event) => {
+                addLog('语音识别错误: ' + event.error, true);
+                isListening = false;
+                document.getElementById('voiceBtn').textContent = '🎤 语音输入';
+                document.getElementById('voiceBtn').classList.remove('danger');
+            };
+        }
+
+        function toggleVoice() {
+            if (!recognition) {
+                addLog('浏览器不支持语音识别', true);
+                return;
+            }
+
+            if (isListening) {
+                recognition.stop();
+            } else {
+                recognition.start();
+            }
+        }
+
+        function toggleConnection() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            } else {
+                connect();
+            }
+        }
+
+        function connect() {
+            // Auto-detect server URL
+            let host = window.location.hostname;
+
+            // Fallback for file:// or empty -> use IPv4 loopback
+            if (!host || host === 'localhost') {
+                host = '127.0.0.1';
+                if (window.location.protocol === 'file:') {
+                    addLog('检测到本地文件运行，直连 127.0.0.1');
+                }
+            }
+
+            // If we are on network IP, use it. If hostname is blank (file://), use 127.0.0.1
+            // Use 8000 port explicitly
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = `${protocol}//${host}:8000/stream`;
+
+            addLog('正在连接 ' + url);
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    status.textContent = '已连接';
+                    status.className = 'status connected';
+                    status.onclick = toggleConnection;
+                    addLog('连接成功!');
+                    refreshWindows();
+
+                    // 启动窗口列表自动刷新（每5秒）
+                    if (windowRefreshTimer) clearInterval(windowRefreshTimer);
+                    windowRefreshTimer = setInterval(() => {
+                        refreshWindowsQuiet();  // 静默刷新，不显示日志
+                    }, 5000);
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'frame') {
+                        screen.src = 'data:image/jpeg;base64,' + data.data;
+                        // 保存服务端发送的窗口尺寸
+                        serverWindowWidth = data.width;
+                        serverWindowHeight = data.height;
+                        frameCount++;
+                        updateFps();
+                    } else if (data.type === 'error') {
+                        addLog('错误: ' + data.message, true);
+                    }
+                };
+
+                ws.onclose = () => {
+                    status.textContent = '未连接 (点击重连)';
+                    status.className = 'status disconnected';
+                    status.onclick = toggleConnection;
+                    addLog('已断开');
+                    // 停止窗口列表自动刷新
+                    if (windowRefreshTimer) {
+                        clearInterval(windowRefreshTimer);
+                        windowRefreshTimer = null;
+                    }
+                };
+
+                ws.onerror = (e) => {
+                    addLog('WebSocket错误. 请检查服务是否开启.', true);
+                };
+            } catch (err) {
+                addLog('创建连接失败: ' + err, true);
+            }
+        }
+
+        function updateFps() {
+            const now = Date.now();
+            if (now - lastFpsTime >= 1000) {
+                fpsDisplay.textContent = frameCount + ' FPS';
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+        }
+
+        // ==================== Window Selection Logic ====================
+
+        // Update close button text based on current window
+        function updateCloseButton() {
+            const closeBtn = document.getElementById('closeBtn');
+            const select = document.getElementById('windowSelect');
+            const currentWindow = document.getElementById('currentWindow').textContent;
+
+            // Get window title (priority: select value > locked window)
+            let windowTitle = select.value;
+            if (!windowTitle && currentWindow && currentWindow !== '未找到' && currentWindow !== '-') {
+                windowTitle = currentWindow.replace('🔒 ', '').trim();
+            }
+
+            if (windowTitle) {
+                // Show window name in button (truncate if too long)
+                const shortName = windowTitle.length > 12 ? windowTitle.substring(0, 12) + '...' : windowTitle;
+                closeBtn.textContent = `✕ ${shortName}`;
+                closeBtn.disabled = false;
+                closeBtn.style.opacity = '1';
+                closeBtn.title = `关闭窗口: ${windowTitle}`;
+            } else {
+                // No window selected
+                closeBtn.textContent = '✕ 关闭';
+                closeBtn.disabled = true;
+                closeBtn.style.opacity = '0.5';
+                closeBtn.title = '请先选择一个窗口';
+            }
+        }
+
+        async function refreshWindows() {
+            try {
+                const res = await fetch(`${API}/windows`);
+                const data = await res.json();
+
+                // Populate native select
+                const select = document.getElementById('windowSelect');
+                const currentValue = select.value;  // 保存当前选中值
+                select.innerHTML = '<option value="">🔍 自动检测...</option>';
+                data.windows.forEach(w => {
+                    const option = document.createElement('option');
+                    option.value = w.title;
+                    option.textContent = `${w.title} (${w.size})`;
+                    select.appendChild(option);
+                });
+
+                // Update current window display
+                document.getElementById('currentWindow').textContent = data.current || '未找到';
+                const lockBtn = document.getElementById('lockBtn');
+                if (data.locked) {
+                    select.value = data.locked;
+                    document.getElementById('currentWindow').innerHTML = `<span class="locked">🔒 ${data.locked}</span>`;
+                    lockBtn.textContent = '🔓 解锁';
+                    lockBtn.className = 'danger';
+                } else {
+                    select.value = '';
+                    lockBtn.textContent = '🔒 锁定';
+                    lockBtn.className = '';
+                }
+                // Update close button
+                updateCloseButton();
+
+                addLog(`找到 ${data.windows.length} 个窗口`);
+            } catch (e) {
+                addLog('刷新窗口失败: ' + e, true);
+            }
+        }
+
+        // 静默刷新窗口列表（不显示日志）
+        async function refreshWindowsQuiet() {
+            try {
+                const res = await fetch(`${API}/windows`);
+                const data = await res.json();
+
+                const select = document.getElementById('windowSelect');
+                const currentValue = select.value;  // 保存当前选中值
+                select.innerHTML = '<option value="">🔍 自动检测...</option>';
+                data.windows.forEach(w => {
+                    const option = document.createElement('option');
+                    option.value = w.title;
+                    option.textContent = `${w.title} (${w.size})`;
+                    select.appendChild(option);
+                });
+
+                // 恢复之前的选中值（如果还存在）
+                if (currentValue && Array.from(select.options).some(o => o.value === currentValue)) {
+                    select.value = currentValue;
+                }
+
+                // Update current window display
+                const lockBtn = document.getElementById('lockBtn');
+                if (data.locked) {
+                    select.value = data.locked;
+                    document.getElementById('currentWindow').innerHTML = `<span class="locked">🔒 ${data.locked}</span>`;
+                    lockBtn.textContent = '🔓 解锁';
+                    lockBtn.className = 'danger';
+                } else {
+                    document.getElementById('currentWindow').textContent = data.current || '未找到';
+                    lockBtn.textContent = '🔒 锁定';
+                    lockBtn.className = '';
+                }
+                updateCloseButton();
+            } catch (e) {
+                // 静默失败，不显示错误
+            }
+        }
+
+        async function handleWindowSelect() {
+            const select = document.getElementById('windowSelect');
+            const title = select.value;
+
+            if (title === '') {
+                // 选择"自动检测" -> 解锁，恢复自动跟随
+                await unlockWindow();
+            } else {
+                // 选择了具体窗口 -> 锁定到该窗口
+                await lockWindow(title);
+            }
+        }
+
+        async function closeCurrentWindow() {
+            const select = document.getElementById('windowSelect');
+            let title = select.value;  // 优先使用选中的值
+
+            console.log('[DEBUG] Close window - select.value:', title);
+
+            // 如果没有选中，尝试从当前窗口获取（但要清理格式）
+            if (!title) {
+                const currentText = document.getElementById('currentWindow').textContent;
+                console.log('[DEBUG] Close window - currentWindow text:', currentText);
+                if (currentText && currentText !== '未找到' && currentText !== '-' && currentText !== '自动跟随中...') {
+                    title = currentText.replace('🔒 ', '').trim();
+                }
+            }
+
+            console.log('[DEBUG] Close window - final title:', title);
+
+            // 最终验证
+            if (!title || title === '未找到' || title === '-' || title === '' || title === '自动跟随中...') {
+                addLog('❌ 请先选择要关闭的窗口', true);
+                return;
+            }
+
+            // 直接关闭，不弹窗确认（避免全屏模式被退出）
+            try {
+                addLog(`⚠️ 正在关闭: ${title.substring(0, 30)}...`);
+
+                // 为了确保关闭正确的窗口，先锁定到该窗口
+                await fetch(`${API}/lock`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: title })
+                });
+
+                // 短暂延迟确保锁定生效
+                await new Promise(resolve => setTimeout(resolve, 200));
+
+                // 发送关闭命令
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'close_window' })
+                });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    addLog(`✅ ${data.message}`);
+                } else {
+                    addLog('操作结果: ' + (data.message || '未知状态'));
+                }
+
+                // 关闭成功后，自动解锁恢复自动跟随模式
+                await new Promise(resolve => setTimeout(resolve, 300));
+                await unlockWindow();
+                addLog('已切换到自动跟随模式');
+
+            } catch (e) {
+                console.error('[ERROR] Close window failed:', e);
+                addLog('关闭窗口失败: ' + e, true);
+                // 即使失败也尝试解锁，避免卡在已关闭的窗口
+                await unlockWindow();
+            }
+        }
+
+        // 发送解锁请求（恢复自动跟随）
+        async function unlockWindow() {
+            const lockBtn = document.getElementById('lockBtn');
+            const select = document.getElementById('windowSelect');
+
+            try {
+                const res = await fetch(`${API}/lock`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: '' })
+                });
+                const data = await res.json();
+                addLog(data.message || '已恢复自动跟随');
+
+                // 更新 UI
+                lockBtn.textContent = '🔒 锁定';
+                lockBtn.className = '';
+                select.value = '';
+                document.getElementById('currentWindow').textContent = '自动跟随中...';
+
+                await refreshWindows();
+            } catch (e) {
+                addLog('解锁失败: ' + e, true);
+            }
+        }
+
+        async function closeWindowByTitle(title) {
+            if (!confirm(`确定要关闭 \"${title.substring(0, 30)}...\" 吗？`)) return;
+            try {
+                // First lock to target, then close
+                await fetch(`${API}/lock`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title })
+                });
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'close_window', x: 0, y: 0 })
+                });
+                const data = await res.json();
+                if (data.status === 'closed') {
+                    addLog(`✅ 已关闭: ${title.substring(0, 20)}...`);
+                } else {
+                    addLog('关闭失败: ' + (data.message || ''), true);
+                }
+                setTimeout(refreshWindows, 1000);
+            } catch (e) {
+                addLog('关闭失败: ' + e, true);
+            }
+        }
+
+        async function lockWindow(title) {
+            if (!title) {
+                addLog('请先选择窗口', true);
+                return;
+            }
+
+            const lockBtn = document.getElementById('lockBtn');
+
+            try {
+                const res = await fetch(`${API}/lock`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title })
+                });
+                const data = await res.json();
+                addLog(data.message || '已锁定');
+
+                // 强制更新 UI
+                lockBtn.textContent = '🔓 解锁';
+                lockBtn.className = 'danger';
+                document.getElementById('windowSelect').value = title;
+
+                // 刷新窗口列表
+                await refreshWindows();
+            } catch (e) {
+                addLog('锁定失败: ' + e, true);
+            }
+        }
+
+        // 一键锁定当前窗口 / 解锁恢复自动跟随
+        async function toggleLock() {
+            const lockBtn = document.getElementById('lockBtn');
+            const isCurrentlyLocked = lockBtn.textContent.includes('解锁');
+
+            if (isCurrentlyLocked) {
+                // 当前已锁定 -> 执行解锁（恢复自动跟随）
+                await unlockWindow();
+            } else {
+                // 当前未锁定 -> 一键锁定当前正在显示的窗口
+                try {
+                    const res = await fetch(`${API}/lock_current`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const data = await res.json();
+
+                    if (data.status === 'locked') {
+                        addLog(`✅ ${data.message}`);
+                        lockBtn.textContent = '🔓 解锁';
+                        lockBtn.className = 'danger';
+                        document.getElementById('currentWindow').innerHTML =
+                            `<span class="locked">🔒 ${data.title}</span>`;
+                        document.getElementById('windowSelect').value = data.title;
+                    } else {
+                        addLog('锁定失败: ' + (data.message || '未知错误'), true);
+                    }
+
+                    await refreshWindows();
+                } catch (e) {
+                    addLog('锁定失败: ' + e, true);
+                }
+            }
+        }
+
+        screen.onclick = async (e) => {
+            const rect = screen.getBoundingClientRect();
+
+            // 使用服务端发送的窗口尺寸（这是点击坐标的目标尺寸）
+            const winW = serverWindowWidth || screen.naturalWidth;
+            const winH = serverWindowHeight || screen.naturalHeight;
+
+            // 计算点击在显示图像上的相对位置（0-1范围）
+            const relX = (e.clientX - rect.left) / rect.width;
+            const relY = (e.clientY - rect.top) / rect.height;
+
+            // 转换为窗口坐标
+            const x = Math.round(relX * winW);
+            const y = Math.round(relY * winH);
+
+            addLog(`点击 (${x}, ${y})`);
+            try {
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'click', x, y })
+                });
+                const data = await res.json();
+                addLog('已点击');
+            } catch (e) {
+                addLog('点击失败: ' + e, true);
+            }
+        };
+
+        // ==================== Fullscreen & Adapt ====================
+        let isAdapted = false;  // Track adaptation state
+
+        function toggleFullscreen() {
+            const doc = document.documentElement;
+            if (!document.fullscreenElement) {
+                doc.requestFullscreen().then(() => {
+                    document.getElementById('fullscreenBtn').textContent = '🔲 退出';
+                    addLog('已进入全屏');
+                }).catch(e => addLog('全屏失败: ' + e, true));
+            } else {
+                document.exitFullscreen().then(() => {
+                    document.getElementById('fullscreenBtn').textContent = '🔲 全屏';
+                    addLog('已退出全屏');
+                });
+            }
+        }
+
+        async function toggleAdapt() {
+            const action = isAdapted ? 'restore_window' : 'adapt_phone';
+            try {
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: action, text: '', x: 0, y: 0 })
+                });
+                const data = await res.json();
+                if (data.status === 'adapted') {
+                    isAdapted = true;
+                    document.getElementById('adaptBtn').textContent = '📐 恢复';
+                    addLog(`✅ 已适配: ${data.size[0]}x${data.size[1]}`);
+                } else if (data.status === 'restored') {
+                    isAdapted = false;
+                    document.getElementById('adaptBtn').textContent = '📐 适配';
+                    addLog('✅ 已恢复原窗口');
+                } else {
+                    addLog('失败: ' + (data.message || JSON.stringify(data)), true);
+                }
+            } catch (e) {
+                addLog('操作失败: ' + e, true);
+            }
+        }
+
+
+        // ==================== Real-time Keyboard Input ====================
+        let lastInputValue = '';  // Track previous value for change detection
+
+        function toggleKeyboard() {
+            const hiddenInput = document.getElementById('hiddenKeyboardInput');
+            // Always open keyboard
+            hiddenInput.focus();
+            lastInputValue = '';
+            hiddenInput.value = '';
+            addLog('键盘已打开');
+        }
+
+        function onKeyboardBlur() {
+            // Keyboard closed by user (no action needed)
+        }
+
+        async function onRealtimeInput(event) {
+            const input = event.target;
+            const newValue = input.value;
+
+            // Detect what changed
+            if (newValue.length > lastInputValue.length) {
+                // Characters added - send the new characters
+                const addedChars = newValue.substring(lastInputValue.length);
+                await sendCharacters(addedChars);
+            }
+            // Note: deletions are handled in onRealtimeKeyDown
+
+            lastInputValue = newValue;
+        }
+
+        async function onRealtimeKeyDown(event) {
+            if (event.key === 'Backspace') {
+                // Let the browser handle the textbox, but also send to PC
+                await sendBackspace();
+            } else if (event.key === 'Enter') {
+                event.preventDefault();  // Don't add newline to textbox
+                await sendEnter();
+                // Clear the input after Enter
+                document.getElementById('textInput').value = '';
+                lastInputValue = '';
+            }
+        }
+
+        async function sendCharacters(chars) {
+            if (!chars) return;
+
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'type', text: chars, x: 0, y: 0 })
+                });
+                // Show brief feedback
+                document.getElementById('keyboardStatus').textContent = `已输入: ${chars}`;
+                setTimeout(() => {
+                    document.getElementById('keyboardStatus').textContent = '(实时同步中)';
+                }, 500);
+            } catch (e) {
+                addLog('输入失败: ' + e, true);
+            }
+        }
+
+        async function sendBackspace() {
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'key', key: 'backspace', x: 0, y: 0 })
+                });
+                document.getElementById('keyboardStatus').textContent = '⌫ 删除';
+                setTimeout(() => {
+                    document.getElementById('keyboardStatus').textContent = '(实时同步中)';
+                }, 300);
+            } catch (e) {
+                addLog('删除失败: ' + e, true);
+            }
+        }
+
+        async function sendEnter() {
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'key', key: 'enter', x: 0, y: 0 })
+                });
+                addLog('↵ 已发送回车');
+            } catch (e) {
+                addLog('回车失败: ' + e, true);
+            }
+        }
+
+        // Legacy sendText for compatibility
+        async function sendText() {
+            const text = document.getElementById('textInput').value;
+            if (!text) return;
+            await sendCharacters(text);
+            document.getElementById('textInput').value = '';
+            lastInputValue = '';
+        }
+
+        async function openApp() {
+            const appName = document.getElementById('appInput').value;
+            if (!appName) return;
+            addLog(`打开软件: "${appName}"`);
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'open_app', text: appName, x: 0, y: 0 })
+                });
+                addLog('已发送启动命令');
+                document.getElementById('appInput').value = '';
+            } catch (e) {
+                addLog('命令失败: ' + e, true);
+            }
+        }
+
+        async function sendHotkey() {
+            const hotkey = document.getElementById('hotkeyInput').value;
+            if (!hotkey) return;
+            addLog(`快捷键: ${hotkey}`);
+            try {
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'hotkey', key: hotkey, x: 0, y: 0 })
+                });
+                addLog('已发送');
+            } catch (e) {
+                addLog('快捷键失败: ' + e, true);
+            }
+        }
+
+        async function scrollUp() {
+            await sendScrollAmount(120);
+        }
+
+        async function scrollDown() {
+            await sendScrollAmount(-120);
+        }
+
+        // FPS control
+        async function updateFpsTarget(fps) {
+            document.getElementById('fpsValue').textContent = fps;
+            try {
+                await fetch(`${API}/set_fps`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fps: parseInt(fps) })
+                });
+                addLog(`帧率: ${fps} FPS`);
+            } catch (e) {
+                addLog('帧率设置失败', true);
+            }
+        }
+
+        // Touch gesture support for mobile (enhanced)
+        let touchStartY = 0;
+        let touchStartX = 0;
+        let touchStartTime = 0;
+        let isScrolling = false; // Flag for scroll mode
+
+        // Double-tap detection for right-click
+        let lastTapTime = 0;
+        let lastTapX = 0;
+        let lastTapY = 0;
+
+        // Pinch zoom variables
+        let initialPinchDistance = 0;
+        let isPinching = false;
+        let lastZoomTime = 0;
+
+        function getPinchDistance(touches) {
+            return Math.hypot(
+                touches[0].clientX - touches[1].clientX,
+                touches[0].clientY - touches[1].clientY
+            );
+        }
+
+        async function sendZoom(zoomIn) {
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'hotkey', key: zoomIn ? 'ctrl+=' : 'ctrl+-', x: 0, y: 0 })
+                });
+                addLog(zoomIn ? '🔍 放大' : '🔍 缩小');
+            } catch (e) {
+                console.log('Zoom error', e);
+            }
+        }
+
+        // Prevent default touch behavior on screen (no page scrolling)
+        screen.addEventListener('touchstart', (e) => {
+            // e.preventDefault(); // ALLOW default for some things, but mostly we handle it. 
+            // Better to prevent default to stop browser scrolling entire page.
+            if (e.target !== screen) return; // Only prevent if touching screen area
+            e.preventDefault();
+
+            if (e.touches.length === 2) {
+                isPinching = true;
+                initialPinchDistance = getPinchDistance(e.touches);
+                addLog('✋ 双指缩放');
+                return;
+            }
+
+            isPinching = false;
+            isScrolling = false;
+            touchStartY = e.touches[0].clientY;
+            touchStartX = e.touches[0].clientX;
+            touchStartTime = Date.now();
+        }, { passive: false });
+
+        screen.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+
+            if (isPinching && e.touches.length === 2) {
+                const currentDistance = getPinchDistance(e.touches);
+                if (Math.abs(currentDistance - initialPinchDistance) > 50) { // Threshold 50px
+                    const now = Date.now();
+                    if (now - lastZoomTime > 300) { // Debounce 300ms
+                        if (currentDistance > initialPinchDistance) {
+                            sendZoom(true);
+                        } else {
+                            sendZoom(false);
+                        }
+                        lastZoomTime = now;
+                        initialPinchDistance = currentDistance; // Reset reference
+                    }
+                }
+                return;
+            }
+
+            if (e.touches.length === 1) {
+                const currentY = e.touches[0].clientY;
+                const currentX = e.touches[0].clientX;
+                const deltaY = currentY - touchStartY; // Moved down = positive delta
+                const deltaX = currentX - touchStartX;
+
+                // Drag threshold to start scrolling (avoid tap jitter)
+                if (!isScrolling && (Math.abs(deltaY) > 8 || Math.abs(deltaX) > 8)) {
+                    isScrolling = true;
+                }
+
+                if (isScrolling) {
+                    const stepY = currentY - touchStartY;
+
+                    if (Math.abs(stepY) > 2) { // 2px sensitivity
+                        // Simple 1:1 mapping (or 1:2)
+                        // If finger moves down (positive), we want to scroll UP (view moves down)
+                        // PyAutoGUI: scroll + = up, scroll - = down
+                        // So finger delta + -> scroll amount +
+
+                        const scrollScale = 3; // 1px drag = 3 scroll units
+                        const scrollVal = Math.round(stepY * scrollScale);
+
+                        if (scrollVal !== 0) {
+                            sendScrollAtPosition(scrollVal, currentX, currentY);
+                            // Update last position to current
+                            touchStartY = currentY;
+                            touchStartX = currentX;
+                        }
+                    }
+                }
+            }
+        }, { passive: false });
+
+        screen.addEventListener('touchend', async (e) => {
+            e.preventDefault();
+
+            if (isPinching) {
+                isPinching = false;
+                return;
+            }
+
+            if (isScrolling) {
+                // Scrolling ended.
+                // Could implement momentum here if needed.
+                isScrolling = false;
+                return;
+            }
+
+            // If NOT scrolling (tap)
+            const now = Date.now();
+            // Check for double tap
+            const tapDistance = Math.hypot(touchStartX - lastTapX, touchStartY - lastTapY);
+            if (now - lastTapTime < 300 && tapDistance < 30) {
+                // Double Tap = Right Click
+                if (navigator.vibrate) navigator.vibrate(50);
+                showTouchRipple(touchStartX, touchStartY);
+                addLog(`右键 (${touchStartX | 0}, ${touchStartY | 0})`);
+                try {
+                    await fetch(`${API}/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'right_click', x: touchStartX, y: touchStartY })
+                    });
+                } catch (e) { }
+                lastTapTime = 0; // Reset
+            } else {
+                // Single Tap -> Click
+                // Update last tap
+                lastTapTime = now;
+                lastTapX = touchStartX;
+                lastTapY = touchStartY;
+
+                // Perform click
+                if (navigator.vibrate) navigator.vibrate(10);
+                showTouchRipple(touchStartX, touchStartY);
+
+                // Adjust coordinates
+                const rect = screen.getBoundingClientRect();
+                const scaleX = screen.naturalWidth / rect.width;
+                const scaleY = screen.naturalHeight / rect.height;
+                const x = Math.round((touchStartX - rect.left) * scaleX);
+                const y = Math.round((touchStartY - rect.top) * scaleY);
+
+                addLog(`点击 (${x}, ${y})`);
+                try {
+                    await fetch(`${API}/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'click', x, y })
+                    });
+                } catch (e) {
+                    addLog('点击失败: ' + e, true);
+                }
+            }
+        });
+
+        // Helper: Scroll at specific screen position (for touch accuracy)
+        async function sendScrollAtPosition(amount, screenX, screenY) {
+            const rect = screen.getBoundingClientRect();
+            const scaleX = screen.naturalWidth / rect.width;
+            const scaleY = screen.naturalHeight / rect.height;
+            // Convert screen coordinates to window coordinates
+            // Note: clientX/Y are relative to viewport. rect is relative to viewport.
+            // touchStartX is clientX.
+
+            const x = Math.round((screenX - rect.left) * scaleX);
+            const y = Math.round((screenY - rect.top) * scaleY);
+
+            // Limit x, y to image bounds? No, server handles it?
+            // Just ensure >= 0
+
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'scroll', x: Math.max(0, x), y: Math.max(0, y), text: String(amount) })
+                });
+            } catch (e) {
+                // console.log('Scroll error', e);
+            }
+        }
+
+        // Legacy scroll at center (for buttons)
+        async function sendScrollAmount(amount) {
+            const rect = screen.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            await sendScrollAtPosition(amount, centerX, centerY);
+        }
+
+        // Visual touch feedback
+        function showTouchRipple(x, y) {
+            const ripple = document.createElement('div');
+            ripple.style.cssText = `
+                position: fixed;
+                left: ${x - 20}px;
+                top: ${y - 20}px;
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: rgba(0, 217, 255, 0.5);
+                pointer-events: none;
+                animation: ripple 0.4s ease-out;
+            `;
+            document.body.appendChild(ripple);
+            setTimeout(() => ripple.remove(), 400);
+        }
+
+        // Mouse wheel scroll on screen
+        screen.addEventListener('wheel', async (e) => {
+            e.preventDefault();
+            const rect = screen.getBoundingClientRect();
+            const scaleX = screen.naturalWidth / rect.width;
+            const scaleY = screen.naturalHeight / rect.height;
+            const x = Math.round((e.clientX - rect.left) * scaleX);
+            const y = Math.round((e.clientY - rect.top) * scaleY);
+            const amount = e.deltaY > 0 ? -3 : 3; // Scroll direction
+
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'scroll', x, y, text: String(amount) })
+                });
+            } catch (e) {
+                console.log('Scroll error', e);
+            }
+        }, { passive: false });
+
+        // Auto-connect
+        setTimeout(connect, 500);
+    </script>
+</body>
+
+</html>
