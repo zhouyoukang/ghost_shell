@@ -659,11 +659,8 @@ async def stream(websocket: WebSocket):
                     skipped = False
                     if hwnd and rect:
                         window_title = win32gui.GetWindowText(hwnd)
-                        # Skip Ghost Shell itself and system windows
-                        skip_titles = ["Ghost Shell", "任务栏", "Program Manager"]
-                        if window_title and any(skip in window_title for skip in skip_titles):
-                            skipped = True
-                        else:
+                        # [USER REQUEST] No skipping - capture all windows
+                        if True:  # Was: skip check removed
                             # Optimize: Try fast BitBlt capture first if available (much faster than ImageGrab)
                             if BACKGROUND_CAPTURE_AVAILABLE:
                                 try:
