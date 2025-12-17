@@ -1515,6 +1515,14 @@
             }
         });
 
+        // Also allow clicking on header to toggle keyboard
+        header.addEventListener('click', (e) => {
+            // Prevent conflict with touchend on mobile
+            if (e.pointerType === 'touch') return;
+            addLog('⌨️ 点击唤醒键盘');
+            toggleKeyboard();
+        });
+
         // ==================== Pie Control Logic (Float Version) ====================
         // ==================== Optimized Clipboard Logic ====================
         async function syncClipboardToMobile() {
