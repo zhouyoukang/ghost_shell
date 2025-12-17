@@ -211,6 +211,64 @@
                 opacity: 0;
             }
         }
+
+        /* Status Overlay */
+        .status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 15, 35, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            color: #fff;
+            backdrop-filter: blur(5px);
+            transition: opacity 0.3s;
+        }
+
+        .status-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .status-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-text {
+            font-size: 1.2rem;
+            color: #00d9ff;
+            font-weight: bold;
+        }
+
+        .status-subtext {
+            font-size: 0.9rem;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+
+            50% {
+                transform: scale(1.1);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+        }
     </style>
 </head>
 
@@ -222,6 +280,12 @@
     <main>
         <div class="screen-container">
             <img id="screen" src="" alt="远程画面">
+            <!-- Status Overlay -->
+            <div id="statusOverlay" class="status-overlay hidden">
+                <div class="status-icon" id="statusIcon">🔍</div>
+                <div class="status-text" id="statusText">正在搜索窗口...</div>
+                <div class="status-subtext" id="statusSubtext">请在前台激活任意窗口</div>
+            </div>
             <div class="fps" id="fps">0 FPS</div>
         </div>
         <div class="controls">
@@ -312,18 +376,6 @@
 
                 <div style="margin-top: 10px;">
 
-                    <!-- Capture Engine Selector -->
-                    <div class="control-group" style="margin-top: 8px;">
-                        <label>📷 截图引擎: <span id="engineStatus" style="color: #00ff88;">加载中...</span></label>
-                        <select id="engineSelect" onchange="switchEngine(this.value)"
-                            style="width: 100%; padding: 6px;">
-                            <option value="auto">自动 (最佳可用)</option>
-                            <option value="dxcam">DXcam (最快, GPU)</option>
-                            <option value="mss">mss (跨平台)</option>
-                            <option value="legacy">Legacy (PIL)</option>
-                        </select>
-                    </div>
-
                     <!-- App Launcher -->
                     <div class="control-group" style="margin-top: 12px;">
                         <label>🚀 快速启动</label>
@@ -384,49 +436,6 @@
 
         // ... (lines 372-436 unchanged) ...
 
-        // Overlay Helpers
-        function showStatusOverlay(type, msg) {
-            let overlay = document.getElementById('statusOverlay');
-            if (!overlay) {
-                const container = document.querySelector('.screen-container');
-                if (container) {
-                    overlay = document.createElement('div');
-                    overlay.id = 'statusOverlay';
-                    overlay.style.cssText = `
-                        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                        background: rgba(0,0,0,0.7); display: flex; flex-direction: column;
-                        align-items: center; justify-content: center; color: #fff;
-                        z-index: 100; pointer-events: none;
-                        font-family: inherit;
-                    `;
-                    container.appendChild(overlay);
-                }
-            }
-
-            if (!overlay) return;
-
-            let icon = '⏳';
-            let text = '请稍候...';
-            if (type === 'skipped') {
-                icon = '🛡️';
-                text = '检测到本机窗口 (已暂停)';
-            } else if (type === 'searching') {
-                icon = '🔍';
-                text = '正在搜索窗口...';
-            } else if (type === 'error') {
-                icon = '❌';
-                text = msg;
-            }
-
-            overlay.innerHTML = `<div style="font-size: 3rem; margin-bottom: 10px;">${icon}</div><div style="font-size: 1.2rem;">${text}</div>`;
-            overlay.style.display = 'flex';
-        }
-
-        function hideStatusOverlay() {
-            const overlay = document.getElementById('statusOverlay');
-            if (overlay) overlay.style.display = 'none';
-        }
-
         function toggleConnection() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close();
@@ -475,54 +484,63 @@
 
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
-
-                    // 1. 实时更新窗口标题 UI (解决 Close 按钮不更新问题)
-                    if (data.window) {
-                        const currentEl = document.getElementById('currentWindow');
-                        const lockBtn = document.getElementById('lockBtn');
-                        const isLocked = lockBtn.textContent.includes('解锁');
-
-                        // 仅在自动跟随模式下实时更新标题，避免锁定模式下频繁闪烁
-                        if (!isLocked) {
-                            if (currentEl.textContent !== data.window) {
-                                currentEl.textContent = data.window;
-                                updateCloseButton(); // 联动更新关闭按钮
-                            }
-                        }
-                    }
-
                     if (data.type === 'frame') {
+                        // Hide overlay on frame
+                        hideStatusOverlay();
+
                         screen.src = 'data:image/jpeg;base64,' + data.data;
-                        screen.style.opacity = '1';
+                        // 保存服务端发送的窗口尺寸
                         serverWindowWidth = data.width;
                         serverWindowHeight = data.height;
                         frameCount++;
                         updateFps();
-                        hideStatusOverlay(); // 收到帧数据，隐藏遮罩
 
+                        // [Real-time Update] Sync UI with current window title from server
+                        // Only update if we are not in locked mode
+                        const currentEl = document.getElementById('currentWindow');
+                        if (data.window && !currentEl.querySelector('.locked')) {
+                            if (currentEl.textContent !== data.window) {
+                                currentEl.textContent = data.window;
+                                updateCloseButton();
+                            }
+                        }
                     } else if (data.type === 'status') {
-                        // 处理 skipped 或 searching 状态
-                        showStatusOverlay(data.status, data.message || "");
-
+                        // Show overlay for status messages
+                        if (data.status === 'skipped') {
+                            showStatusOverlay('🛡️', '检测到本机窗口 (已暂停)', `正在忽略: ${data.window || '未知'}`);
+                        } else if (data.status === 'searching') {
+                            showStatusOverlay('🔍', '正在搜索窗口...', '请在前台激活任意窗口');
+                        } else {
+                            showStatusOverlay('ℹ️', '状态信息', data.message || '未知状态');
+                        }
                     } else if (data.type === 'error') {
                         addLog('错误: ' + data.message, true);
                         if (data.message.includes('截图失败')) {
-                            // 严重错误显示遮罩，普通错误仅日志
-                            showStatusOverlay('error', data.message);
+                            showStatusOverlay('⚠️', '截图失败', data.message);
                         }
                     }
                 };
 
                 ws.onclose = () => {
-                    status.textContent = '未连接 (点击重连)';
+                    status.textContent = '未连接 (尝试重连...)';
                     status.className = 'status disconnected';
                     status.onclick = toggleConnection;
-                    addLog('已断开');
+                    addLog('已断开，2秒后尝试重连...');
+
                     // 停止窗口列表自动刷新
                     if (windowRefreshTimer) {
                         clearInterval(windowRefreshTimer);
                         windowRefreshTimer = null;
                     }
+
+                    // Auto-reconnect logic
+                    ws = null; // Clear old socket
+                    setTimeout(() => {
+                        // Check if we are already connected (user might have clicked)
+                        if (!ws || (ws && ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING)) {
+                            connect();
+                        }
+                    }, 2000);
                 };
 
                 ws.onerror = (e) => {
@@ -540,6 +558,23 @@
                 frameCount = 0;
                 lastFpsTime = now;
             }
+        }
+
+        // ==================== Status Overlay Logic ====================
+        const statusOverlay = document.getElementById('statusOverlay');
+        const statusIcon = document.getElementById('statusIcon');
+        const statusText = document.getElementById('statusText');
+        const statusSubtext = document.getElementById('statusSubtext');
+
+        function showStatusOverlay(icon, text, subtext) {
+            statusIcon.textContent = icon;
+            statusText.textContent = text;
+            statusSubtext.textContent = subtext || '';
+            statusOverlay.classList.remove('hidden');
+        }
+
+        function hideStatusOverlay() {
+            statusOverlay.classList.add('hidden');
         }
 
         // ==================== Window Selection Logic ====================
@@ -816,14 +851,7 @@
                 // 当前已锁定 -> 执行解锁（恢复自动跟随）
                 await unlockWindow();
             } else {
-                // 优先锁定下拉列表选中的窗口
-                const select = document.getElementById('windowSelect');
-                if (select.value) {
-                    await lockWindow(select.value);
-                    return;
-                }
-
-                // 未选中 -> 一键锁定当前正在显示的窗口
+                // 当前未锁定 -> 一键锁定当前正在显示的窗口
                 try {
                     const res = await fetch(`${API}/lock_current`, {
                         method: 'POST',
@@ -1079,73 +1107,19 @@
             }
         }
 
-        // ==================== Capture Engine Control ====================
-        async function refreshEngineStatus() {
-            try {
-                const res = await fetch(`${API}/capture_engine`);
-                const data = await res.json();
-
-                const statusEl = document.getElementById('engineStatus');
-                const selectEl = document.getElementById('engineSelect');
-
-                if (statusEl) {
-                    statusEl.textContent = data.current;
-                    statusEl.style.color = data.current === 'dxcam' ? '#00ff88' :
-                        data.current === 'mss' ? '#00d9ff' : '#ff9500';
-                }
-
-                if (selectEl) {
-                    selectEl.value = data.setting;
-                    // Disable unavailable options
-                    Array.from(selectEl.options).forEach(opt => {
-                        if (opt.value === 'dxcam') opt.disabled = !data.available.dxcam;
-                        if (opt.value === 'mss') opt.disabled = !data.available.mss;
-                    });
-                }
-            } catch (e) {
-                // Silently fail
-            }
-        }
-
-        async function switchEngine(engine) {
-            try {
-                const res = await fetch(`${API}/capture_engine`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ engine: engine })
-                });
-                const data = await res.json();
-
-                if (data.status === 'success') {
-                    addLog(`✅ 引擎切换: ${data.active}`);
-                    refreshEngineStatus();
-                } else {
-                    addLog(`❌ ${data.message}`, true);
-                    refreshEngineStatus();  // Reset select to actual value
-                }
-            } catch (e) {
-                addLog('引擎切换失败', true);
-            }
-        }
-
-        // Refresh engine status on connect
-        setTimeout(refreshEngineStatus, 1000);
-
         // ==================== Shortcut & Modifier Logic ====================
-        const modifiers = { ctrl: false, alt: false, shift: false, win: false };
+        const modifiers = { ctrl: false, alt: false, shift: false };
 
         function toggleModifier(key) {
             modifiers[key] = !modifiers[key];
-            // Try to find button if it exists (for sidebar buttons)
             const btn = document.getElementById('btn' + key.charAt(0).toUpperCase() + key.slice(1));
-            if (btn) {
-                if (modifiers[key]) {
-                    btn.classList.add('primary');
-                } else {
-                    btn.classList.remove('primary');
-                }
+            if (modifiers[key]) {
+                btn.classList.add('primary'); // Visual feedback
+                addLog(`${key.toUpperCase()} 保持按下`);
+            } else {
+                btn.classList.remove('primary');
+                addLog(`${key.toUpperCase()} 释放`);
             }
-            addLog(`${key.toUpperCase()} ${modifiers[key] ? '保持按下' : '释放'}`);
         }
 
         async function sendKey(key) {
@@ -1594,7 +1568,7 @@
             }
         }
 
-        // Two-Layer Pie Menu Structure - 6 Categories (半圆布局，相关功能归类)
+        // Two-Layer Pie Menu Structure
         const pieCategories = [
             {
                 label: '⌨️',
@@ -1602,20 +1576,7 @@
                 items: [
                     { label: 'Ctrl', action: 'mod', value: 'ctrl' },
                     { label: 'Alt', action: 'mod', value: 'alt' },
-                    { label: 'Shift', action: 'mod', value: 'shift' },
-                    { label: 'Win', action: 'mod', value: 'win' }
-                ]
-            },
-            {
-                label: '📋',
-                name: '剪贴板',
-                items: [
-                    { label: '复制', action: 'custom', fn: syncClipboardToMobile },
-                    { label: '粘贴', action: 'custom', fn: syncClipboardToPC },
-                    { label: '剪切', action: 'hotkey', value: 'ctrl+x' },
-                    { label: '全选', action: 'hotkey', value: 'ctrl+a' },
-                    { label: '撤销', action: 'hotkey', value: 'ctrl+z' },
-                    { label: '重做', action: 'hotkey', value: 'ctrl+y' }
+                    { label: 'Shift', action: 'mod', value: 'shift' }
                 ]
             },
             {
@@ -1625,41 +1586,26 @@
                     { label: 'ESC', action: 'key', value: 'esc' },
                     { label: 'Tab', action: 'key', value: 'tab' },
                     { label: 'Enter', action: 'key', value: 'enter' },
-                    { label: 'Del', action: 'key', value: 'delete' },
-                    { label: '保存', action: 'hotkey', value: 'ctrl+s' },
-                    { label: '查找', action: 'hotkey', value: 'ctrl+f' }
+                    { label: 'Back', action: 'key', value: 'backspace' }
                 ]
             },
             {
-                label: '🔀',
-                name: '导航',
+                label: '📋',
+                name: '剪贴板',
                 items: [
-                    { label: 'Home', action: 'key', value: 'home' },
-                    { label: 'End', action: 'key', value: 'end' },
-                    { label: 'PgUp', action: 'key', value: 'pageup' },
-                    { label: 'PgDn', action: 'key', value: 'pagedown' }
+                    { label: 'Copy', action: 'custom', fn: syncClipboardToMobile },
+                    { label: 'Paste', action: 'custom', fn: syncClipboardToPC },
+                    { label: 'Cut', action: 'hotkey', value: 'ctrl+x' }
                 ]
             },
             {
                 label: '🪟',
                 name: '窗口',
                 items: [
-                    { label: '切换', action: 'hotkey', value: 'alt+tab' },
-                    { label: '桌面', action: 'hotkey', value: 'win+d' },
-                    { label: '关闭', action: 'hotkey', value: 'alt+f4' },
-                    { label: '最大', action: 'hotkey', value: 'win+up' },
-                    { label: '最小', action: 'hotkey', value: 'win+down' }
-                ]
-            },
-            {
-                label: '🔧',
-                name: '系统',
-                items: [
-                    { label: '任务管理', action: 'hotkey', value: 'ctrl+shift+esc' },
-                    { label: '运行', action: 'hotkey', value: 'win+r' },
-                    { label: '设置', action: 'hotkey', value: 'win+i' },
-                    { label: '截图', action: 'hotkey', value: 'win+shift+s' },
-                    { label: '资源管理', action: 'hotkey', value: 'win+e' }
+                    { label: 'Alt+Tab', action: 'hotkey', value: 'alt+tab' },
+                    { label: 'Win+D', action: 'hotkey', value: 'win+d' },
+                    { label: 'Alt+F4', action: 'hotkey', value: 'alt+f4' },
+                    { label: 'Win+E', action: 'hotkey', value: 'win+e' }
                 ]
             }
         ];
@@ -1689,26 +1635,22 @@
         let floatElStartX = 0;
         let floatElStartY = 0;
 
-        const PIE_INNER_RADIUS = 50;   // 紧凑的内环
-        const PIE_OUTER_RADIUS = 100;  // 外环距离
-
-        // 半圆边界角度
-        function getHalfCircleBounds() {
-            if (dockSide === 'right') {
-                return { min: 90, max: 270 };  // 右侧半圆：90°到270°
-            } else {
-                return { min: -90, max: 90 };  // 左侧半圆：-90°到90°
-            }
-        }
+        const PIE_INNER_RADIUS = 60;
+        const PIE_OUTER_RADIUS = 120;
 
         function createPieSectors() {
             pieSectors.innerHTML = '';
 
-            const bounds = getHalfCircleBounds();
-            // 内环使用较小范围，留出边距
-            const padding = 20;  // 边缘留白
-            const startAngle = bounds.min + padding;
-            const endAngle = bounds.max - padding;
+            // Determine Angles based on dockSide
+            let startAngle, endAngle;
+
+            if (dockSide === 'right') {
+                startAngle = 110;
+                endAngle = 250;
+            } else {
+                startAngle = -70;
+                endAngle = 70;
+            }
 
             const totalAngle = endAngle - startAngle;
             const categoryStepAngle = totalAngle / (pieCategories.length - 1);
@@ -1725,20 +1667,19 @@
                 el.className = 'pie-category';
                 el.textContent = cat.label;
                 el.style.cssText = `
-                    position: absolute; width: 36px; height: 36px;
-                    left: ${x - 18}px; top: ${y - 18}px;
+                    position: absolute; width: 45px; height: 45px;
+                    left: ${x - 22.5}px; top: ${y - 22.5}px;
                     background: rgba(40, 50, 70, 0.9); border: 2px solid #556;
                     border-radius: 50%; display: flex; align-items: center; justify-content: center;
-                    font-size: 0.9rem; color: #fff; transition: all 0.15s;
+                    font-size: 1.2rem; color: #fff; transition: all 0.15s;
                     z-index: 10;
                 `;
                 el.dataset.catIndex = index;
                 el.dataset.type = 'category';
-                el.dataset.angle = angle;  // 保存角度用于外环计算
                 pieSectors.appendChild(el);
             });
 
-            return { startAngle, endAngle, categoryStepAngle };
+            return { startAngle, categoryStepAngle };
         }
 
         function expandCategory(catIndex) {
@@ -1748,47 +1689,25 @@
             if (catIndex < 0 || catIndex >= pieCategories.length) return;
 
             const cat = pieCategories[catIndex];
-            pieAvailable = cat.items;
+            pieAvailable = cat.items; // Update flat list for action execution
             activeCategory = catIndex;
 
-            const bounds = getHalfCircleBounds();
-            const innerPadding = 20;
-            const innerStart = bounds.min + innerPadding;
-            const innerEnd = bounds.max - innerPadding;
-            const innerStep = (innerEnd - innerStart) / (pieCategories.length - 1);
-
-            // 选中分类的中心角度
-            const categoryAngle = innerStart + (catIndex * innerStep);
-
-            // 外环扇形范围：以分类角度为中心，向两侧展开
-            const itemCount = cat.items.length;
-            const itemSpacing = 25;  // 每个项目占用的角度
-            const spreadAngle = (itemCount - 1) * itemSpacing;  // 总展开角度
-
-            // 计算外环的起始和结束角度
-            let outerStart = categoryAngle - spreadAngle / 2;
-            let outerEnd = categoryAngle + spreadAngle / 2;
-
-            // 边界检查：不能超出半圆范围
-            if (outerStart < bounds.min) {
-                // 超出上边界，向下偏移
-                const offset = bounds.min - outerStart;
-                outerStart = bounds.min;
-                outerEnd = Math.min(bounds.max, outerEnd + offset);
-            }
-            if (outerEnd > bounds.max) {
-                // 超出下边界，向上偏移
-                const offset = outerEnd - bounds.max;
-                outerEnd = bounds.max;
-                outerStart = Math.max(bounds.min, outerStart - offset);
+            // Determine Angles
+            let startAngle, endAngle;
+            if (dockSide === 'right') {
+                startAngle = 110;
+                endAngle = 250;
+            } else {
+                startAngle = -70;
+                endAngle = 70;
             }
 
-            const actualSpread = outerEnd - outerStart;
-            const itemStepAngle = itemCount > 1 ? actualSpread / (itemCount - 1) : 0;
+            const totalAngle = endAngle - startAngle;
+            const itemStepAngle = cat.items.length > 1 ? totalAngle / (cat.items.length - 1) : 0;
 
-            // Create Outer Ring (Items) - 从分类位置延伸
+            // Create Outer Ring (Items)
             cat.items.forEach((item, index) => {
-                const angle = outerStart + (index * itemStepAngle);
+                const angle = startAngle + (index * itemStepAngle);
                 const radian = angle * (Math.PI / 180);
 
                 const x = Math.cos(radian) * PIE_OUTER_RADIUS;
@@ -1798,20 +1717,20 @@
                 el.className = 'pie-outer-item';
                 el.textContent = item.label;
                 el.style.cssText = `
-                    position: absolute; width: 48px; height: 48px;
-                    left: ${x - 24}px; top: ${y - 24}px;
-                    background: rgba(30, 40, 60, 0.9); border: 1px solid #445;
+                    position: absolute; width: 50px; height: 50px;
+                    left: ${x - 25}px; top: ${y - 25}px;
+                    background: rgba(30, 40, 60, 0.85); border: 1px solid #445;
                     border-radius: 50%; display: flex; align-items: center; justify-content: center;
-                    font-size: 0.6rem; color: #ccc; transition: all 0.1s; text-align: center;
-                    animation: pieExpand 0.15s ease-out; padding: 3px;
+                    font-size: 0.7rem; color: #ccc; transition: all 0.1s;
+                    animation: pieExpand 0.2s ease-out;
                 `;
                 el.dataset.itemIndex = index;
                 el.dataset.type = 'item';
-                el.dataset.angle = angle;
                 pieSectors.appendChild(el);
             });
 
-            return { startAngle: outerStart, stepAngle: itemStepAngle };
+            // Return config for outer ring selection
+            return { startAngle, stepAngle: itemStepAngle };
         }
 
         let pieConfig = createPieSectors();
@@ -1921,12 +1840,12 @@
                 let c = checkAngle % 360;
                 if (c < 0) c += 360;
 
-                if (distance < 25) {
+                if (distance < 30) {
                     // Dead zone at center
                     activeSectorIndex = -1;
                     highlightCategory(-1);
-                } else if (distance < 75) {
-                    // INNER RING: Category Selection (50px radius)
+                } else if (distance < 90) {
+                    // INNER RING: Category Selection
                     activeSectorIndex = -1; // Clear outer selection
 
                     let bestDiff = 999;
@@ -1951,7 +1870,7 @@
                         }
                     });
 
-                    if (bestDiff < 50 && bestCatIdx !== activeCategory) {
+                    if (bestDiff < 60 && bestCatIdx !== activeCategory) {
                         // Expand new category
                         outerConfig = expandCategory(bestCatIdx);
                         if (navigator.vibrate) navigator.vibrate(15);
@@ -1959,7 +1878,7 @@
                     highlightCategory(activeCategory);
 
                 } else {
-                    // OUTER RING: Item Selection (100px radius)
+                    // OUTER RING: Item Selection
                     if (activeCategory >= 0 && outerConfig) {
                         let bestDiff = 999;
                         let bestIdx = -1;

@@ -1,4 +1,4 @@
-# Ghost Shell Server v2.2 - Multi-mode Screen Capture
+# Ghost Shell Server v2.2 - Multi-mode Screen Capture (Restored)
 # Supports: DXcam (fastest), mss (cross-platform), legacy (pywin32)
 
 # CRITICAL: Set DPI awareness BEFORE any other imports
@@ -67,10 +67,9 @@ try:
     import win32ui
     import win32con
     BACKGROUND_CAPTURE_AVAILABLE = True
-    print("✅ pywin32 available (legacy capture)")
 except ImportError:
     BACKGROUND_CAPTURE_AVAILABLE = False
-    print("⚠️ pywin32 not installed. Background capture disabled.")
+    print("WARNING: pywin32 not installed. Background capture disabled.")
 
 # ==================== Capture Mode Configuration ====================
 # Available modes: 'dxcam' (fastest), 'mss' (cross-platform), 'legacy' (pywin32)
@@ -100,7 +99,7 @@ def stop_dxcam():
         except Exception as e:
             print(f"⚠️ Failed to stop DXcam: {e}")
 
-app = FastAPI(title="Ghost Shell Server v2.0")
+app = FastAPI(title="Ghost Shell Server v2.2")
 
 @app.on_event("startup")
 async def startup_event():
@@ -136,7 +135,7 @@ CURRENT_DISPLAY_WINDOW = None
 # Flag: activate window once on next capture (set True when user switches window)
 PENDING_ACTIVATION = False
 # Frame rate control (adjustable via API)
-FRAME_DELAY = 0.033  # Default 30 FPS
+FRAME_DELAY = 0.2  # Default 5 FPS (1/5 = 0.2s)
 # Original window state for restore
 ORIGINAL_WINDOW_STATE = None
 
@@ -308,7 +307,6 @@ def simple_capture(hwnd=None, rect=None):
     except Exception as e:
         print(f"[CAPTURE] simple_capture error: {e}")
     return None
-
 
 def get_current_capture_engine():
     """Get the currently active capture engine."""
@@ -494,66 +492,7 @@ def root():
 
 @app.get("/api")
 def api_info():
-    return {
-        "status": "Ghost Shell 服务器运行中", 
-        "version": "2.2", 
-        "capture_engine": get_current_capture_engine(),
-        "available_engines": {
-            "dxcam": DXCAM_AVAILABLE,
-            "mss": MSS_AVAILABLE,
-            "legacy": True
-        },
-        "endpoints": ["/capture", "/stream", "/interact", "/status", "/windows", "/lock", "/capture_engine"]
-    }
-
-class CaptureEngineRequest(BaseModel):
-    engine: str  # 'auto', 'dxcam', 'mss', 'legacy'
-
-@app.get("/capture_engine")
-def get_capture_engine():
-    """获取当前截图引擎状态"""
-    return {
-        "current": get_current_capture_engine(),
-        "setting": CAPTURE_ENGINE,
-        "available": {
-            "dxcam": DXCAM_AVAILABLE,
-            "mss": MSS_AVAILABLE,
-            "legacy": True
-        }
-    }
-
-@app.post("/capture_engine")
-def set_capture_engine(req: CaptureEngineRequest):
-    """切换截图引擎"""
-    global CAPTURE_ENGINE, dxcam_camera
-    
-    valid_engines = ["auto", "dxcam", "mss", "legacy"]
-    if req.engine not in valid_engines:
-        return {"status": "error", "message": f"无效引擎，可选: {valid_engines}"}
-    
-    if req.engine == "dxcam" and not DXCAM_AVAILABLE:
-        return {"status": "error", "message": "DXcam 未安装，请运行: pip install dxcam"}
-    
-    if req.engine == "mss" and not MSS_AVAILABLE:
-        return {"status": "error", "message": "mss 未安装，请运行: pip install mss"}
-    
-    old_engine = CAPTURE_ENGINE
-    CAPTURE_ENGINE = req.engine
-    
-    # Manage DXcam lifecycle
-    if req.engine == "dxcam" or (req.engine == "auto" and DXCAM_AVAILABLE):
-        if old_engine != "dxcam":
-            start_dxcam()
-    elif old_engine == "dxcam":
-        stop_dxcam()
-    
-    print(f"[ENGINE] Switched from {old_engine} to {req.engine}")
-    return {
-        "status": "success", 
-        "engine": req.engine,
-        "active": get_current_capture_engine(),
-        "message": f"已切换到 {req.engine}"
-    }
+    return {"status": "Ghost Shell 服务器运行中", "version": "2.1", "endpoints": ["/capture", "/stream", "/interact", "/status", "/windows", "/lock"]}
 
 @app.get("/windows")
 def list_windows():
@@ -671,125 +610,132 @@ async def stream(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            frame_start = time.perf_counter()  # Track frame timing
-            screenshot = None
-            width, height = 800, 600
-            window_title = "未知"
-            skipped = False
-            hwnd = None
-            rect = None
-
-            # Check if we have a locked window
-            if LOCKED_WINDOW_TITLE:
-                # Locked mode: use the locked window
-                win = get_target_window()
-                if win:
-                    window_title = win.title
-                    hwnd = getattr(win, '_hWnd', None)
-                    if not hwnd and BACKGROUND_CAPTURE_AVAILABLE:
-                        hwnd = win32gui.FindWindow(None, win.title)
-                    
-                    # Handle pending activation (only once after lock)
-                    global PENDING_ACTIVATION
-                    if PENDING_ACTIVATION:
-                        print(f"[STREAM] Activating locked window once: '{win.title}'")
-                        try:
-                            if win.isMinimized:
-                                win.restore()
-                            win.activate()
-                            import time
-                            time.sleep(0.15)
-                        except:
-                            pass
-                        PENDING_ACTIVATION = False
-                    
-                    # Try background capture first
-                    if hwnd and BACKGROUND_CAPTURE_AVAILABLE:
-                        screenshot = capture_window_background(hwnd, win.width, win.height)
-                    
-                    # Fallback to simple_capture
-                    if screenshot is None and hwnd:
-                        screenshot = simple_capture(hwnd=hwnd)
-                    
-                    if screenshot:
-                        width, height = screenshot.size
-            else:
-                # Auto-detect mode: use v2_simplified direct approach
-                hwnd, rect = get_foreground_hwnd_and_rect()
+            try:
+                frame_start = time.perf_counter()  # Track frame timing
+                screenshot = None
+                width, height = 800, 600
+                window_title = "未知"
                 skipped = False
-                if hwnd and rect:
-                    window_title = win32gui.GetWindowText(hwnd)
-                    # Skip Ghost Shell itself and system windows, and prevent recursion with IDE
-                    skip_titles = ["Ghost Shell", "任务栏", "Program Manager", "Antigravity", "AIOT", "Visual Studio Code"]
-                    if window_title and any(skip in window_title for skip in skip_titles):
-                        skipped = True
-                    else:
-                        # Optimize: Try fast BitBlt capture first if available (much faster than ImageGrab)
-                        if BACKGROUND_CAPTURE_AVAILABLE:
-                            try:
-                                # Calculate width/height from rect
-                                w = rect[2] - rect[0]
-                                h = rect[3] - rect[1]
-                                screenshot = capture_window_background(hwnd, w, h)
-                            except:
-                                screenshot = None
+                hwnd = None
+                rect = None
+                
+                # Check if we have a locked window
+                if LOCKED_WINDOW_TITLE:
+                    # Locked mode: use the locked window
+                    win = get_target_window()
+                    if win:
+                        window_title = win.title
+                        hwnd = getattr(win, '_hWnd', None)
+                        if not hwnd and BACKGROUND_CAPTURE_AVAILABLE:
+                            hwnd = win32gui.FindWindow(None, win.title)
                         
-                        # Fallback to simple_capture (ImageGrab) if BitBlt fails or not available
-                        if screenshot is None:
-                            screenshot = simple_capture(hwnd=hwnd, rect=rect)
-
+                        # Handle pending activation (only once after lock)
+                        global PENDING_ACTIVATION
+                        if PENDING_ACTIVATION:
+                            print(f"[STREAM] Activating locked window once: '{win.title}'")
+                            try:
+                                if win.isMinimized:
+                                    win.restore()
+                                win.activate()
+                                import time
+                                time.sleep(0.15)
+                            except:
+                                pass
+                            PENDING_ACTIVATION = False
+                        
+                        # Try background capture first
+                        if hwnd and BACKGROUND_CAPTURE_AVAILABLE:
+                            screenshot = capture_window_background(hwnd, win.width, win.height)
+                        
+                        # Fallback to simple_capture
+                        if screenshot is None and hwnd:
+                            screenshot = simple_capture(hwnd=hwnd)
+                        
                         if screenshot:
                             width, height = screenshot.size
-                
-                # 不再回退到关键词搜索，只跟随实际的前台窗口
-                # 如果没有截图（比如前台是 Ghost Shell 浏览器本身），保持上一帧
-            
-            # Update global state for lock_current
-            # Only update if valid content (not skipped), so locking "current" works as "last valid"
-            global CURRENT_DISPLAY_WINDOW
-            if window_title and not skipped:
-                 CURRENT_DISPLAY_WINDOW = window_title
-            
-            # Send logic
-            if screenshot:
-                width, height = screenshot.size
-                
-                # [PERFORMANCE] Downscale image to boost FPS
-                target_w = int(width * 0.5)
-                target_h = int(height * 0.5)
-                screenshot = screenshot.resize((target_w, target_h), Image.BILINEAR)
+                else:
+                    # Auto-detect mode: use v2_simplified direct approach
+                    hwnd, rect = get_foreground_hwnd_and_rect()
+                    skipped = False
+                    if hwnd and rect:
+                        window_title = win32gui.GetWindowText(hwnd)
+                        # Skip Ghost Shell itself and system windows
+                        skip_titles = ["Ghost Shell", "任务栏", "Program Manager"]
+                        if window_title and any(skip in window_title for skip in skip_titles):
+                            skipped = True
+                        else:
+                            # Optimize: Try fast BitBlt capture first if available (much faster than ImageGrab)
+                            if BACKGROUND_CAPTURE_AVAILABLE:
+                                try:
+                                    # Calculate width/height from rect
+                                    w = rect[2] - rect[0]
+                                    h = rect[3] - rect[1]
+                                    screenshot = capture_window_background(hwnd, w, h)
+                                except:
+                                    screenshot = None
+                            
+                            # Fallback to simple_capture (ImageGrab) if BitBlt fails or not available
+                            if screenshot is None:
+                                # Pass rect to simple_capture to avoid re-calculating
+                                screenshot = simple_capture(hwnd=hwnd, rect=rect)
 
-                img_byte_arr = io.BytesIO()
-                screenshot.save(img_byte_arr, format='JPEG', quality=50)
-                img_byte_arr.seek(0)
-                img_base64 = base64.b64encode(img_byte_arr.read()).decode()
+                            if screenshot:
+                                width, height = screenshot.size
                 
-                await websocket.send_json({
-                    "type": "frame",
-                    "data": img_base64,
-                    "width": width,
-                    "height": height,
-                    "window": window_title[:50] if window_title else "未知"
-                })
-            elif skipped:
-                # Tell client we are handling a skipped window (e.g. self)
-                await websocket.send_json({
-                    "type": "status", 
-                    "status": "skipped",
-                    "window": window_title[:50]
-                })
-            elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
-                 await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
-            elif not screenshot and not LOCKED_WINDOW_TITLE:
-                await websocket.send_json({"type": "error", "message": f"截图失败 (Engine: {get_current_capture_engine()})"})
-            
-            # Smart delay: subtract actual processing time from target delay
-            elapsed = time.perf_counter() - frame_start
-            sleep_time = max(0, FRAME_DELAY - elapsed)
-            if sleep_time > 0:
-                await asyncio.sleep(sleep_time)
+                # Update global state for lock_current
+                # Only update if valid content (not skipped), so locking "current" works as "last valid"
+                global CURRENT_DISPLAY_WINDOW
+                if window_title and not skipped:
+                     CURRENT_DISPLAY_WINDOW = window_title
+                
+                # Send logic
+                if screenshot:
+                    # [PERFORMANCE] Send original quality/size as requested (restoring behavior)
+                    img_byte_arr = io.BytesIO()
+                    screenshot.save(img_byte_arr, format='JPEG', quality=85)
+                    img_byte_arr.seek(0)
+                    img_base64 = base64.b64encode(img_byte_arr.read()).decode()
+                    
+                    await websocket.send_json({
+                        "type": "frame",
+                        "data": img_base64,
+                        "width": width,
+                        "height": height,
+                        "window": window_title[:50] if window_title else "未知"
+                    })
+                elif skipped:
+                    # Tell client we are handling a skipped window
+                    await websocket.send_json({
+                        "type": "status", 
+                        "status": "skipped",
+                        "window": window_title[:50]
+                    })
+                elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
+                     await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
+                elif not screenshot and not LOCKED_WINDOW_TITLE:
+                     # Just wait, don't spam error unless persistent
+                     pass
+                
+                # Smart delay: subtract actual processing time from target delay
+                elapsed = time.perf_counter() - frame_start
+                # Ensure at least 5 FPS (0.2s) even if fast, but user wanted DXcam speed?
+                # Restoring to 30 FPS logic (0.033) as it was before "revert to 5fps"
+                wait_time = max(0, 0.033 - elapsed)
+                await asyncio.sleep(wait_time)
+
+            except Exception as e:
+                # Catch transient errors inside the loop to avoid disconnecting!
+                print(f"[STREAM LOOP ERROR] {e}")
+                await asyncio.sleep(0.1) # Brief pause on error
+
+    except WebSocketDisconnect:
+        print("[STREAM] WebSocket disconnected")
     except Exception as e:
-        print(f"WebSocket closed: {e}")
+        print(f"[STREAM] Fatal Error: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
 
 @app.post("/interact")
 async def interact(req: InteractionRequest):
