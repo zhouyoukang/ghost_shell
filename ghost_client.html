@@ -747,7 +747,14 @@
                 // 当前已锁定 -> 执行解锁（恢复自动跟随）
                 await unlockWindow();
             } else {
-                // 当前未锁定 -> 一键锁定当前正在显示的窗口
+                // 优先锁定下拉列表选中的窗口
+                const select = document.getElementById('windowSelect');
+                if (select.value) {
+                    await lockWindow(select.value);
+                    return;
+                }
+
+                // 未选中 -> 一键锁定当前正在显示的窗口
                 try {
                     const res = await fetch(`${API}/lock_current`, {
                         method: 'POST',
