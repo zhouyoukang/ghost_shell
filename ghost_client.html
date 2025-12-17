@@ -574,8 +574,9 @@
             bytesReceived += dataSize;
             const now = Date.now();
             if (now - lastBandwidthTime >= 1000) {
-                const kbps = (bytesReceived / 1024).toFixed(1);
-                bandwidthDisplay.textContent = kbps + ' KB/s';
+                // Display in MB with 2 decimal places
+                const mbps = (bytesReceived / 1024 / 1024).toFixed(2);
+                bandwidthDisplay.textContent = mbps + ' MB';
                 bytesReceived = 0;
                 lastBandwidthTime = now;
             }
@@ -1519,34 +1520,38 @@
         // Auto-connect
         setTimeout(connect, 500);
 
-        // ==================== Header Pull-down for Keyboard ====================
+        // ==================== Header Click for Keyboard ====================
         const header = document.querySelector('header');
+        const ghostShellTitle = header.querySelector('h1');
         let headerTouchStartY = 0;
+        let headerTouchHandled = false;
 
+        // Pull-down gesture on entire header
         header.addEventListener('touchstart', (e) => {
             headerTouchStartY = e.touches[0].clientY;
+            headerTouchHandled = false;
         }, { passive: true });
 
         header.addEventListener('touchend', (e) => {
             const touchEndY = e.changedTouches[0].clientY;
             const deltaY = touchEndY - headerTouchStartY;
 
-            // Pull-down: >50px triggers keyboard with feedback
+            // Only handle pull-down here (>50px)
             if (deltaY > 50) {
                 addLog('⌨️ 下拉唤醒键盘');
                 toggleKeyboard();
-            }
-            // Tap: minimal movement (<10px) also triggers keyboard
-            else if (Math.abs(deltaY) < 10) {
-                addLog('⌨️ 点击唤醒键盘');
-                toggleKeyboard();
+                headerTouchHandled = true;
             }
         });
 
-        // Also allow clicking on header to toggle keyboard (for desktop mouse)
-        header.addEventListener('click', (e) => {
-            // Only for mouse clicks, touch is handled by touchend
-            if (e.pointerType === 'touch' || e.type === 'touchend') return;
+        // Direct click/tap on Ghost Shell title as button
+        ghostShellTitle.style.cursor = 'pointer';
+        ghostShellTitle.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent bubbling to header
+            if (headerTouchHandled) {
+                headerTouchHandled = false;
+                return;
+            }
             addLog('⌨️ 点击唤醒键盘');
             toggleKeyboard();
         });
