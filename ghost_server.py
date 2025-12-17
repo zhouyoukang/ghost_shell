@@ -744,37 +744,41 @@ async def stream(websocket: WebSocket):
                 # 不再回退到关键词搜索，只跟随实际的前台窗口
                 # 如果没有截图（比如前台是 Ghost Shell 浏览器本身），保持上一帧
             
+            # Update global state for lock_current
+            global CURRENT_DISPLAY_WINDOW
+            if window_title:
+                 CURRENT_DISPLAY_WINDOW = window_title
+            
+            # Send logic
             if screenshot:
-                global CURRENT_DISPLAY_WINDOW
                 width, height = screenshot.size
                 
-                # 记住当前正在显示的窗口（用于点击时定位）
-                CURRENT_DISPLAY_WINDOW = window_title
-                
                 # [PERFORMANCE] Downscale image to boost FPS
-                # 1080p -> 540p reduces data by 4x
                 target_w = int(width * 0.5)
                 target_h = int(height * 0.5)
-                # 使用 BILINEAR 兼顾速度和质量 (或者 NEAREST 极速但有锯齿)
                 screenshot = screenshot.resize((target_w, target_h), Image.BILINEAR)
 
                 img_byte_arr = io.BytesIO()
-                # Reduce JPEG quality to 50 for video stream (faster encoding)
                 screenshot.save(img_byte_arr, format='JPEG', quality=50)
                 img_byte_arr.seek(0)
                 img_base64 = base64.b64encode(img_byte_arr.read()).decode()
+                
                 await websocket.send_json({
                     "type": "frame",
                     "data": img_base64,
-                    "width": width,  # Send original width for client coordinate mapping
+                    "width": width,
                     "height": height,
                     "window": window_title[:50] if window_title else "未知"
                 })
             elif skipped:
-                # Do nothing if skipped (e.g. self-capture)
-                pass
+                # Tell client we are handling a skipped window (e.g. self)
+                await websocket.send_json({
+                    "type": "status", 
+                    "status": "skipped",
+                    "window": window_title[:50]
+                })
             elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
-                 await websocket.send_json({"type": "error", "message": "未找到目标窗口"})
+                 await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
             elif not screenshot and not LOCKED_WINDOW_TITLE:
                 await websocket.send_json({"type": "error", "message": f"截图失败 (Engine: {get_current_capture_engine()})"})
             

@@ -384,6 +384,49 @@
 
         // ... (lines 372-436 unchanged) ...
 
+        // Overlay Helpers
+        function showStatusOverlay(type, msg) {
+            let overlay = document.getElementById('statusOverlay');
+            if (!overlay) {
+                const container = document.querySelector('.screen-container');
+                if (container) {
+                    overlay = document.createElement('div');
+                    overlay.id = 'statusOverlay';
+                    overlay.style.cssText = `
+                        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                        background: rgba(0,0,0,0.7); display: flex; flex-direction: column;
+                        align-items: center; justify-content: center; color: #fff;
+                        z-index: 10; pointer-events: none;
+                        font-family: inherit;
+                    `;
+                    container.appendChild(overlay);
+                }
+            }
+
+            if (!overlay) return;
+
+            let icon = '⏳';
+            let text = '请稍候...';
+            if (type === 'skipped') {
+                icon = '🛡️';
+                text = '检测到本机窗口 (已暂停)';
+            } else if (type === 'searching') {
+                icon = '🔍';
+                text = '正在搜索窗口...';
+            } else if (type === 'error') {
+                icon = '❌';
+                text = msg;
+            }
+
+            overlay.innerHTML = `<div style="font-size: 3rem; margin-bottom: 10px;">${icon}</div><div style="font-size: 1.2rem;">${text}</div>`;
+            overlay.style.display = 'flex';
+        }
+
+        function hideStatusOverlay() {
+            const overlay = document.getElementById('statusOverlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+
         function toggleConnection() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close();
@@ -432,15 +475,41 @@
 
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
+
+                    // 1. 实时更新窗口标题 UI (解决 Close 按钮不更新问题)
+                    if (data.window) {
+                        const currentEl = document.getElementById('currentWindow');
+                        const lockBtn = document.getElementById('lockBtn');
+                        const isLocked = lockBtn.textContent.includes('解锁');
+
+                        // 仅在自动跟随模式下实时更新标题，避免锁定模式下频繁闪烁
+                        if (!isLocked) {
+                            if (currentEl.textContent !== data.window) {
+                                currentEl.textContent = data.window;
+                                updateCloseButton(); // 联动更新关闭按钮
+                            }
+                        }
+                    }
+
                     if (data.type === 'frame') {
                         screen.src = 'data:image/jpeg;base64,' + data.data;
-                        // 保存服务端发送的窗口尺寸
+                        screen.style.opacity = '1';
                         serverWindowWidth = data.width;
                         serverWindowHeight = data.height;
                         frameCount++;
                         updateFps();
+                        hideStatusOverlay(); // 收到帧数据，隐藏遮罩
+
+                    } else if (data.type === 'status') {
+                        // 处理 skipped 或 searching 状态
+                        showStatusOverlay(data.status, data.message || "");
+
                     } else if (data.type === 'error') {
                         addLog('错误: ' + data.message, true);
+                        if (data.message.includes('截图失败')) {
+                            // 严重错误显示遮罩，普通错误仅日志
+                            showStatusOverlay('error', data.message);
+                        }
                     }
                 };
 
