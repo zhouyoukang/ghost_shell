@@ -76,7 +76,40 @@ except ImportError:
 # Available modes: 'dxcam' (fastest), 'mss' (cross-platform), 'legacy' (pywin32)
 CAPTURE_ENGINE = "auto"  # 'auto' = use best available
 
+# ==================== DXcam Lifecycle Management ====================
+def start_dxcam():
+    global dxcam_camera
+    if DXCAM_AVAILABLE and CV2_AVAILABLE:
+        try:
+            if dxcam_camera is None:
+                dxcam_camera = dxcam.create(output_idx=0, output_color="BGR")
+            
+            if not dxcam_camera.is_capturing:
+                # Start background capture thread (60FPS target)
+                dxcam_camera.start(target_fps=60, video_mode=True)
+                print("✅ DXcam streaming started (Background Thread)")
+        except Exception as e:
+            print(f"⚠️ Failed to start DXcam streaming: {e}")
+
+def stop_dxcam():
+    global dxcam_camera
+    if dxcam_camera and dxcam_camera.is_capturing:
+        try:
+            dxcam_camera.stop()
+            print("⏹️ DXcam streaming stopped")
+        except Exception as e:
+            print(f"⚠️ Failed to stop DXcam: {e}")
+
 app = FastAPI(title="Ghost Shell Server v2.0")
+
+@app.on_event("startup")
+async def startup_event():
+    # Auto-start DXcam if available
+    start_dxcam()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    stop_dxcam()
 
 app.add_middleware(
     CORSMiddleware,
@@ -103,7 +136,7 @@ CURRENT_DISPLAY_WINDOW = None
 # Flag: activate window once on next capture (set True when user switches window)
 PENDING_ACTIVATION = False
 # Frame rate control (adjustable via API)
-FRAME_DELAY = 0.2  # Default 5 FPS (1/5 = 0.2s)
+FRAME_DELAY = 0.033  # Default 30 FPS
 # Original window state for restore
 ORIGINAL_WINDOW_STATE = None
 
@@ -216,16 +249,39 @@ def simple_capture(hwnd=None, rect=None):
                 if dxcam_camera is None:
                     dxcam_camera = dxcam.create(output_idx=0, output_color="BGR")
                 
+                # Check bounds (DXcam only captures one monitor)
+                cam_w, cam_h = dxcam_camera.width, dxcam_camera.height
+                if (left < 0 or top < 0 or right > cam_w or bottom > cam_h):
+                    # Window is outside primary monitor or cross-monitor
+                    # print(f"[CAPTURE] Window out of bounds for DXcam: {rect}, cam: {cam_w}x{cam_h}")
+                    raise ValueError("Window out of bounds for DXcam")
+
                 # DXcam captures full screen, we need to crop
-                frame = dxcam_camera.grab()
-                if frame is not None:
-                    # Crop to window region
-                    cropped = frame[top:bottom, left:right]
-                    # Convert BGR to RGB for PIL
-                    rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-                    return Image.fromarray(rgb)
+                # [STREAMING MODE] Use get_latest_frame if started (Zero latency)
+                if dxcam_camera.is_capturing:
+                    frame = dxcam_camera.get_latest_frame()
+                else:
+                    # [POLLING MODE] Fallback to grab (One-shot)
+                    frame = dxcam_camera.grab()
+                
+                if frame is None:
+                    # In streaming mode, this means no new frame yet (static screen)
+                    # We should handle this gracefully, but for now fallback to ensure response
+                    raise ValueError("DXcam frame is None (static or failed)")
+                    
+                # Crop to window region
+                cropped = frame[top:bottom, left:right]
+                
+                if cropped.size == 0:
+                    raise ValueError(f"Empty crop result: {cropped.shape}")
+
+                # Convert BGR to RGB for PIL
+                rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+                return Image.fromarray(rgb)
             except Exception as e:
-                print(f"[CAPTURE] DXcam error: {e}, falling back to mss")
+                # Only print non-bounds errors to avoid log spam
+                if "bounds" not in str(e):
+                    print(f"[CAPTURE] DXcam error: {e} | Rect: {rect}, falling back to mss")
                 engine = "mss"  # Fallback
         
         # ==================== mss Mode (Fast, Cross-platform) ====================
@@ -242,7 +298,7 @@ def simple_capture(hwnd=None, rect=None):
                 img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
                 return img
             except Exception as e:
-                print(f"[CAPTURE] mss error: {e}, falling back to legacy")
+                print(f"[CAPTURE] mss error: {e} | Rect: {rect}, falling back to legacy")
                 engine = "legacy"  # Fallback
         
         # ==================== Legacy Mode (PIL.ImageGrab) ====================
@@ -484,13 +540,12 @@ def set_capture_engine(req: CaptureEngineRequest):
     old_engine = CAPTURE_ENGINE
     CAPTURE_ENGINE = req.engine
     
-    # Reset dxcam camera when switching away
-    if old_engine == "dxcam" and req.engine != "dxcam" and dxcam_camera is not None:
-        try:
-            dxcam_camera.stop()
-        except:
-            pass
-        dxcam_camera = None
+    # Manage DXcam lifecycle
+    if req.engine == "dxcam" or (req.engine == "auto" and DXCAM_AVAILABLE):
+        if old_engine != "dxcam":
+            start_dxcam()
+    elif old_engine == "dxcam":
+        stop_dxcam()
     
     print(f"[ENGINE] Switched from {old_engine} to {req.engine}")
     return {
@@ -702,8 +757,10 @@ async def stream(websocket: WebSocket):
                     "height": height,
                     "window": window_title[:50] if window_title else "未知"
                 })
+            elif not (hwnd and rect):
+                 await websocket.send_json({"type": "error", "message": "未找到目标窗口"})
             else:
-                await websocket.send_json({"type": "error", "message": "未找到窗口或截图失败"})
+                await websocket.send_json({"type": "error", "message": f"截图失败 (Engine: {get_current_capture_engine()})"})
             
             # Smart delay: subtract actual processing time from target delay
             elapsed = time.perf_counter() - frame_start
