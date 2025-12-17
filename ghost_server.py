@@ -745,8 +745,9 @@ async def stream(websocket: WebSocket):
                 # 如果没有截图（比如前台是 Ghost Shell 浏览器本身），保持上一帧
             
             # Update global state for lock_current
+            # Only update if valid content (not skipped), so locking "current" works as "last valid"
             global CURRENT_DISPLAY_WINDOW
-            if window_title:
+            if window_title and not skipped:
                  CURRENT_DISPLAY_WINDOW = window_title
             
             # Send logic
