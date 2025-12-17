@@ -287,6 +287,7 @@
                 <div class="status-subtext" id="statusSubtext">请在前台激活任意窗口</div>
             </div>
             <div class="fps" id="fps">0 FPS</div>
+            <div class="fps" id="bandwidth" style="right: 60px;">0 KB/s</div>
         </div>
         <div class="controls">
             <!-- Row 1: Voice + Fullscreen + Adapt -->
@@ -495,6 +496,10 @@
                         frameCount++;
                         updateFps();
 
+                        // Track bandwidth (base64 is ~4/3 of original size)
+                        const frameBytes = data.data.length * 0.75;
+                        updateBandwidth(frameBytes);
+
                         // [Real-time Update] Sync UI with current window title from server
                         // Only update if we are not in locked mode
                         const currentEl = document.getElementById('currentWindow');
@@ -557,6 +562,22 @@
                 fpsDisplay.textContent = frameCount + ' FPS';
                 frameCount = 0;
                 lastFpsTime = now;
+            }
+        }
+
+        // ==================== Bandwidth Tracking ====================
+        const bandwidthDisplay = document.getElementById('bandwidth');
+        let bytesReceived = 0;
+        let lastBandwidthTime = Date.now();
+
+        function updateBandwidth(dataSize) {
+            bytesReceived += dataSize;
+            const now = Date.now();
+            if (now - lastBandwidthTime >= 1000) {
+                const kbps = (bytesReceived / 1024).toFixed(1);
+                bandwidthDisplay.textContent = kbps + ' KB/s';
+                bytesReceived = 0;
+                lastBandwidthTime = now;
             }
         }
 
@@ -1508,17 +1529,24 @@
 
         header.addEventListener('touchend', (e) => {
             const touchEndY = e.changedTouches[0].clientY;
-            // Threshold for pull-down: 50px
-            if (touchEndY - headerTouchStartY > 50) {
+            const deltaY = touchEndY - headerTouchStartY;
+
+            // Pull-down: >50px triggers keyboard with feedback
+            if (deltaY > 50) {
                 addLog('⌨️ 下拉唤醒键盘');
+                toggleKeyboard();
+            }
+            // Tap: minimal movement (<10px) also triggers keyboard
+            else if (Math.abs(deltaY) < 10) {
+                addLog('⌨️ 点击唤醒键盘');
                 toggleKeyboard();
             }
         });
 
-        // Also allow clicking on header to toggle keyboard
+        // Also allow clicking on header to toggle keyboard (for desktop mouse)
         header.addEventListener('click', (e) => {
-            // Prevent conflict with touchend on mobile
-            if (e.pointerType === 'touch') return;
+            // Only for mouse clicks, touch is handled by touchend
+            if (e.pointerType === 'touch' || e.type === 'touchend') return;
             addLog('⌨️ 点击唤醒键盘');
             toggleKeyboard();
         });
