@@ -599,6 +599,8 @@ async def interact(req: InteractionRequest):
             keys = req.key.split("+")
             pyautogui.hotkey(*keys)
             return {"status": "hotkey_pressed", "keys": keys}
+
+
         elif req.action == "scroll":
             # Scroll at position, amount in req.text (positive=up, negative=down)
             pyautogui.moveTo(abs_x, abs_y)
@@ -794,10 +796,32 @@ async def interact(req: InteractionRequest):
                 error_msg = f"关闭窗口失败: {str(e)}"
                 print(f"[CLOSE ERROR] {error_msg}")
                 return {"status": "error", "message": error_msg}
+        elif req.action == "mousedown":
+            # Mouse button down (left)
+            pyautogui.mouseDown(abs_x, abs_y)
+            return {"status": "mousedown", "pos": (abs_x, abs_y)}
+        elif req.action == "mouseup":
+            # Mouse button up (left)
+            pyautogui.mouseUp(abs_x, abs_y)
+            return {"status": "mouseup", "pos": (abs_x, abs_y)}
+        elif req.action == "mousemove":
+            # Mouse move only
+            pyautogui.moveTo(abs_x, abs_y)
+            return {"status": "moved", "pos": (abs_x, abs_y)}
         else:
             raise HTTPException(status_code=400, detail="Unknown action")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/get_clipboard")
+def get_clipboard():
+    """Get current clipboard content from PC."""
+    import pyperclip
+    try:
+        content = pyperclip.paste()
+        return {"status": "success", "content": content}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/status")
 def status():
@@ -822,20 +846,62 @@ def status():
         "sessions": sessions
     }
 
+# Helper functions for multiprocessing
+def start_http():
+    import uvicorn
+    print(f"✅ HTTP Server started on port 8000")
+    # Need to pass import string or app object. App object works if defined globally.
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="error")
+
+def start_https(cert_file, key_file):
+    import uvicorn
+    # Re-verify path in process
+    if os.path.exists(cert_file):
+        print(f"✅ HTTPS Server started on port 8443")
+        uvicorn.run(app, host="0.0.0.0", port=8443, ssl_certfile=cert_file, ssl_keyfile=key_file, log_level="error")
+    else:
+        print("❌ HTTPS certificate not found in child process.")
+
 if __name__ == "__main__":
     import uvicorn
     import sys
+    import multiprocessing
+    import time
     
     # Check for SSL certificate
     cert_dir = os.path.dirname(__file__)
     cert_file = os.path.join(cert_dir, "server.pem")
-    
-    if os.path.exists(cert_file) and "--https" in sys.argv:
-        print("Ghost Shell Server v2.1 starting on HTTPS port 8443...")
-        print("Access via: https://192.168.31.141:8443")
-        uvicorn.run(app, host="0.0.0.0", port=8443, ssl_certfile=cert_file, ssl_keyfile=cert_file)
+    has_cert = os.path.exists(cert_file)
+
+    # If --https-only flag is passed (legacy/debug), run only HTTPS
+    if "--https-only" in sys.argv:
+        start_https(cert_file, cert_file)
+    elif "--http-only" in sys.argv:
+        start_http()
     else:
-        print("Ghost Shell Server v2.1 starting on HTTP port 8000...")
-        print("Access via: http://192.168.31.141:8000")
-        print("For HTTPS (mobile voice): python ghost_server.py --https")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        # Default: Try access both
+        # Using multiprocessing.Process
+        p_http = multiprocessing.Process(target=start_http)
+        p_http.start()
+        
+        if has_cert:
+            # Pass file paths explicitly to avoid scope issues
+            p_https = multiprocessing.Process(target=start_https, args=(cert_file, cert_file))
+            p_https.start()
+            
+            print("\n" + "="*50)
+            print("🚀 Ghost Shell Server Dual-Mode Active")
+            print("   - PC (HTTP):    http://localhost:8000")
+            print("   - Mobile (HTTPS): https://192.168.31.141:8443")
+            print("="*50 + "\n")
+            
+            try:
+                p_http.join()
+                p_https.join()
+            except KeyboardInterrupt:
+                print("Stopping servers...")
+                p_http.terminate()
+                p_https.terminate()
+        else:
+            print("⚠️ SSL 'server.pem' not found. Running in HTTP-only mode.")
+            start_http()

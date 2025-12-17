@@ -2,6 +2,12 @@
 # Starts server and opens client in browser
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Fallback to absolute path if running from Desktop/Shortcut copy
+if (-not (Test-Path (Join-Path $ScriptDir "ghost_server.py"))) {
+    $ScriptDir = "F:\github\AIOT\ghost_shell"
+}
+
 $ServerScript = Join-Path $ScriptDir "ghost_server.py"
 
 Write-Host "=====================================" -ForegroundColor Cyan
@@ -27,8 +33,8 @@ Start-Process "http://localhost:8000?v=$timestamp"
 
 Write-Host ""
 Write-Host "Ghost Shell v2.1 is ready!" -ForegroundColor Green
-Write-Host "- Local:  http://localhost:8000" -ForegroundColor Gray
-Write-Host "- Remote: http://192.168.31.141:8000" -ForegroundColor Gray
+Write-Host "- PC (HTTP):      http://localhost:8000" -ForegroundColor Gray
+Write-Host "- Mobile (HTTPS): https://192.168.31.141:8443 (Accept cert)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Features:" -ForegroundColor Cyan
 Write-Host "  - Multi-monitor support" -ForegroundColor Gray
