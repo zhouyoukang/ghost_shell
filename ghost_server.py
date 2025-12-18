@@ -132,6 +132,10 @@ ACTIVATE_WINDOW = False  # Don't steal focus during capture
 LOCKED_WINDOW_TITLE = None
 # 当前正在显示的窗口标题（用于点击时定位）
 CURRENT_DISPLAY_WINDOW = None
+# 上一个有效窗口（用于同机测试时防止窗口切换）
+LAST_VALID_WINDOW = None
+# 窗口切换时间戳（用于检测快速切换）
+WINDOW_CHANGE_TIME = 0
 # Flag: activate window once on next capture (set True when user switches window)
 PENDING_ACTIVATION = False
 # Frame rate control (adjustable via API)
@@ -676,10 +680,14 @@ async def stream(websocket: WebSocket):
                                 screenshot = None
                 
                 # Update global state for lock_current
-                # Only update if valid content (not skipped), so locking "current" works as "last valid"
-                global CURRENT_DISPLAY_WINDOW
-                if window_title and not skipped:
-                     CURRENT_DISPLAY_WINDOW = window_title
+                # 只有在非锁定模式下才更新 CURRENT_DISPLAY_WINDOW
+                global CURRENT_DISPLAY_WINDOW, LAST_VALID_WINDOW, WINDOW_CHANGE_TIME
+                if window_title and not LOCKED_WINDOW_TITLE:
+                    # 保存上一个窗口用于快速切换时的回退
+                    if CURRENT_DISPLAY_WINDOW and CURRENT_DISPLAY_WINDOW != window_title:
+                        LAST_VALID_WINDOW = CURRENT_DISPLAY_WINDOW
+                        WINDOW_CHANGE_TIME = time.time()
+                    CURRENT_DISPLAY_WINDOW = window_title
                 
                 # Send logic
                 if screenshot:
@@ -735,11 +743,20 @@ async def interact(req: InteractionRequest):
     """Send interaction to target window."""
     global ORIGINAL_WINDOW_STATE, CURRENT_DISPLAY_WINDOW
     
-    # 使用当前正在显示的窗口，而不是当前前台窗口
+    # [同机测试修复] 如果窗口刚刚切换（<500ms），使用上一个窗口
+    # 这样当用户点击浏览器时，点击会发送到原来的目标窗口
+    target_title = CURRENT_DISPLAY_WINDOW
+    if LAST_VALID_WINDOW and WINDOW_CHANGE_TIME:
+        time_since_change = time.time() - WINDOW_CHANGE_TIME
+        if time_since_change < 0.5:  # 500ms 内的切换，使用上一个窗口
+            print(f"[INTERACT] Quick switch detected ({time_since_change*1000:.0f}ms ago), using LAST_VALID_WINDOW: '{LAST_VALID_WINDOW}'")
+            target_title = LAST_VALID_WINDOW
+    
+    # 使用目标窗口标题找到窗口
     win = None
-    if CURRENT_DISPLAY_WINDOW:
+    if target_title:
         # 根据标题找到窗口
-        windows = gw.getWindowsWithTitle(CURRENT_DISPLAY_WINDOW)
+        windows = gw.getWindowsWithTitle(target_title)
         if windows:
             win = windows[0]
     
