@@ -356,26 +356,23 @@
                 "></div>
             </div>
 
-            <!-- Touch hints -->
-            <div style="font-size: 0.65rem; color: #666; text-align: center; margin: 8px 0;">
-                📱 悬浮球：长按拖动吸附 | 向内拉动唤出菜单
-            </div>
-
             <!-- Hidden input for keyboard capture -->
             <input type="text" id="hiddenKeyboardInput" style="position: absolute; left: -9999px; opacity: 0;"
                 oninput="onRealtimeInput(event)" onkeydown="onRealtimeKeyDown(event)" onblur="onKeyboardBlur()"
                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-
-            <!-- Touch hints for mobile -->
-            <div style="font-size: 0.65rem; color: #666; text-align: center; margin: 8px 0;">
-                📱 点击=左键 | 双击=右键 | 快滑=滚动 | 按住拖=连续滚 | 双指=缩放
-            </div>
 
             <!-- Collapsible advanced section -->
             <details style="margin-top: 8px;">
                 <summary style="cursor: pointer; color: #00d9ff; font-size: 0.85rem;">⚙️ 更多选项</summary>
 
                 <div style="margin-top: 10px;">
+
+                    <!-- Touch hints (moved inside) -->
+                    <div
+                        style="font-size: 0.6rem; color: #666; text-align: center; margin: 8px 0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        📱 悬浮球：长按拖动吸附 | 向内拉动唤出菜单<br>
+                        📱 点击=左键 | 双击=右键 | 快滑=滚动 | 按住拖=连续滚 | 双指=缩放
+                    </div>
 
                     <!-- App Launcher -->
                     <div class="control-group" style="margin-top: 12px;">
@@ -385,22 +382,16 @@
                     </div>
                     <button onclick="openApp()">打开软件</button>
 
-                    <!-- FPS Control -->
+                    <!-- Log (moved inside) -->
                     <div class="control-group" style="margin-top: 12px;">
-                        <label>帧率: <span id="fpsValue">30</span> FPS</label>
-                        <input type="range" id="fpsSlider" min="5" max="60" value="30"
-                            oninput="updateFpsTarget(this.value)" style="width: 100%;">
+                        <label>📋 日志</label>
+                        <div class="log" id="log" style="max-height: 80px; font-size: 0.65rem;"></div>
                     </div>
                 </div>
             </details>
 
-            <!-- Compact log -->
-            <div class="control-group" style="margin-top: 8px;">
-                <div class="log" id="log" style="max-height: 80px; font-size: 0.65rem;"></div>
-            </div>
-
             <!-- Current window indicator -->
-            <div class="window-info" style="font-size: 0.7rem; text-align: center;">
+            <div class="window-info" style="font-size: 0.7rem; text-align: center; margin-top: 8px;">
                 当前: <span id="currentWindow">-</span>
             </div>
         </div>
