@@ -1235,6 +1235,25 @@
             return { x, y };
         }
 
+        // Helper to get current target window title for interaction
+        function getCurrentTargetTitle() {
+            const currentWindowEl = document.getElementById('currentWindow');
+            if (!currentWindowEl) return null;
+
+            // 如果是锁定状态，去掉 🔒 前缀
+            let txt = currentWindowEl.textContent.trim();
+            if (txt.includes('🔒')) {
+                txt = txt.replace('🔒 ', '').trim();
+            }
+
+            // 过滤掉无效状态
+            if (!txt || txt === '未找到' || txt === '-' || txt === '自动跟随中...') {
+                return null;
+            }
+
+            return txt;
+        }
+
         screen.addEventListener('touchstart', (e) => {
             if (e.target !== screen) return;
             e.preventDefault();
@@ -1262,10 +1281,11 @@
 
                 // Send Mouse Down
                 const coords = getWindowCoords(touchStartX, touchStartY);
+                const targetTitle = getCurrentTargetTitle();
                 await fetch(`${API}/interact`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'mousedown', x: coords.x, y: coords.y })
+                    body: JSON.stringify({ action: 'mousedown', x: coords.x, y: coords.y, window_title: targetTitle })
                 });
 
             }, LONG_PRESS_MS);
@@ -1303,13 +1323,13 @@
 
                 if (isDragging) {
                     // DRAG MODE: Send Mouse Move events
-                    // Rate limit? Browser touchmove is high freq.
                     const coords = getWindowCoords(currentX, currentY);
+                    const targetTitle = getCurrentTargetTitle();
                     // We simply fire and forget, server handles stream
                     fetch(`${API}/interact`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'mousemove', x: coords.x, y: coords.y })
+                        body: JSON.stringify({ action: 'mousemove', x: coords.x, y: coords.y, window_title: targetTitle })
                     });
                     return;
                 }
@@ -1384,12 +1404,13 @@
 
                 const coords = getWindowCoords(touchEndX, touchEndY);
                 // Check modifiers for Right Click? Usually Right Click is standalone.
+                const targetTitle = getCurrentTargetTitle();
 
                 try {
                     await fetch(`${API}/interact`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'right_click', x: coords.x, y: coords.y })
+                        body: JSON.stringify({ action: 'right_click', x: coords.x, y: coords.y, window_title: targetTitle })
                     });
                 } catch (e) { }
                 lastTapTime = 0;
@@ -1409,13 +1430,15 @@
                 const activeModifiers = Object.keys(modifiers).filter(k => modifiers[k]);
 
                 // 服务端现已支持 keydown/keyup，可以实现真正的修饰键+点击
+                const targetTitle = getCurrentTargetTitle(); // 获取当前目标窗口标题
+
                 try {
                     // 1. 按下所有激活的修饰键
                     for (const mod of activeModifiers) {
                         await fetch(`${API}/interact`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'keydown', key: mod })
+                            body: JSON.stringify({ action: 'keydown', key: mod, window_title: targetTitle })
                         });
                     }
 
@@ -1423,7 +1446,7 @@
                     await fetch(`${API}/interact`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'click', x: coords.x, y: coords.y })
+                        body: JSON.stringify({ action: 'click', x: coords.x, y: coords.y, window_title: targetTitle })
                     });
 
                     // 3. 释放所有修饰键
@@ -2104,6 +2127,56 @@
         document.addEventListener('touchend', (e) => {
             // Handled by handleFloatEnd mostly, but fallback just in case
         });
+        // Explicit Desktop Click Handler (Fallback for Mouse)
+        screen.addEventListener('click', async (e) => {
+            // If dragging occurred, ignore click
+            if (isDragging) return;
+
+            // Calculate coords for mouse click
+            const rect = screen.getBoundingClientRect();
+            const scaleX = screen.naturalWidth / rect.width;
+            const scaleY = screen.naturalHeight / rect.height;
+            const x = Math.round((e.clientX - rect.left) * scaleX);
+            const y = Math.round((e.clientY - rect.top) * scaleY);
+
+            addLog(`🖱️ PC点击 (${x}, ${y})`);
+
+            const targetTitle = getCurrentTargetTitle();
+
+            // Handle Modifiers
+            const activeModifiers = Object.keys(modifiers).filter(k => modifiers[k]);
+
+            try {
+                // 1. Modifiers
+                for (const mod of activeModifiers) {
+                    await fetch(`${API}/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'keydown', key: mod, window_title: targetTitle })
+                    });
+                }
+
+                // 2. Click
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'click', x, y, window_title: targetTitle })
+                });
+
+                // 3. Release Modifiers
+                for (const mod of activeModifiers) {
+                    await fetch(`${API}/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'keyup', key: mod, window_title: targetTitle })
+                    });
+                }
+
+                if (activeModifiers.length > 0) resetModifiers();
+
+            } catch (err) { }
+        });
+
     </script>
 </body>
 

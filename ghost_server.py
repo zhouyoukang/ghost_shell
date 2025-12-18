@@ -149,6 +149,7 @@ class InteractionRequest(BaseModel):
     y: int = 0
     text: str = ""
     key: str = ""
+    window_title: str = None  # Client-specified target window for robust locking
 
 class LockRequest(BaseModel):
     title: str
@@ -668,19 +669,16 @@ async def stream(websocket: WebSocket):
                         width = rect[2] - rect[0]
                         height = rect[3] - rect[1]
                         
-                        # [INFINITE LOOP FIX] 如果是 Ghost Shell 且未锁定，则跳过
-                        if "Ghost Shell" in window_title and not LOCKED_WINDOW_TITLE:
-                            skipped = True
-                        else:
-                            # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
-                            screenshot = simple_capture(hwnd=hwnd, rect=rect)
-                            
-                            # BitBlt 备选 (窗口被遮挡时)
-                            if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
-                                try:
-                                    screenshot = capture_window_background(hwnd, width, height)
-                                except:
-                                    screenshot = None
+                        # [无跳过] 用户明确要求不要跳过机制
+                        # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
+                        screenshot = simple_capture(hwnd=hwnd, rect=rect)
+                        
+                        # BitBlt 备选 (窗口被遮挡时)
+                        if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
+                            try:
+                                screenshot = capture_window_background(hwnd, width, height)
+                            except:
+                                screenshot = None
                 
                 # Update global state for lock_current
                 # 只有在非锁定模式下才更新 CURRENT_DISPLAY_WINDOW
@@ -709,14 +707,6 @@ async def stream(websocket: WebSocket):
                         "height": height,
                         "window": window_title[:50] if window_title else "未知"
                     })
-                elif skipped:
-                     # Tell client we are handling a skipped window
-                     # [RED X FIX] 发送 skipped 状态同时也发送窗口标题，以便客户端更新关闭按钮
-                     await websocket.send_json({
-                        "type": "status", 
-                        "status": "skipped",
-                        "window": window_title[:50]
-                     })
                 elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
                      await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
                 elif not screenshot and not LOCKED_WINDOW_TITLE:
@@ -754,21 +744,27 @@ async def interact(req: InteractionRequest):
     """Send interaction to target window."""
     global ORIGINAL_WINDOW_STATE, CURRENT_DISPLAY_WINDOW
     
+    # 优先使用客户端指定的窗口（最准确）
+    target_title = None
+    if req.window_title and req.window_title != "未找到" and req.window_title != "-":
+        target_title = req.window_title
+        print(f"[INTERACT] Client requested target: '{target_title}'")
+    else:
+        # Fallback to current display check
+        target_title = CURRENT_DISPLAY_WINDOW
+
     # [同机测试修复] 如果窗口刚刚切换（<500ms），使用上一个窗口
-    # 这样当用户点击浏览器时，点击会发送到原来的目标窗口
-    target_title = CURRENT_DISPLAY_WINDOW
-    if LAST_VALID_WINDOW and WINDOW_CHANGE_TIME:
+    # 只有在没有明确指定目标时才使用此逻辑
+    if not target_title and LAST_VALID_WINDOW and WINDOW_CHANGE_TIME:
         time_since_change = time.time() - WINDOW_CHANGE_TIME
-        if time_since_change < 0.5:  # 500ms 内的切换，使用上一个窗口
-            print(f"[INTERACT] Quick switch detected ({time_since_change*1000:.0f}ms ago), using LAST_VALID_WINDOW: '{LAST_VALID_WINDOW}'")
+        if time_since_change < 0.5:
             target_title = LAST_VALID_WINDOW
             
-            # [AUTO-LOCK] 自动锁定到目标窗口，防止后续帧变成浏览器
-            if not LOCKED_WINDOW_TITLE:
-                # Direct logic since we are in the same module
-                LOCKED_WINDOW_TITLE = target_title
-                PENDING_ACTIVATION = False
-                print(f"[AUTO-LOCK] Automatically locked to '{target_title}' due to interaction during switch")
+    # [AUTO-LOCK] 自动锁定到目标窗口
+    if target_title and not LOCKED_WINDOW_TITLE:
+        LOCKED_WINDOW_TITLE = target_title
+        PENDING_ACTIVATION = False
+        print(f"[AUTO-LOCK] Automatically locked to '{target_title}' based on interaction")
     
     # 使用目标窗口标题找到窗口
     win = None
