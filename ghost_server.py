@@ -274,9 +274,9 @@ def simple_capture(hwnd=None, rect=None):
                 if cropped.size == 0:
                     raise ValueError(f"Empty crop result: {cropped.shape}")
 
-                # [OPTIMIZED] Keep BGR format - cv2 encoder expects BGR anyway
-                # Skip conversion to save CPU: was BGR->RGB->BGR, now just BGR
-                return Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
+                # [OPTIMIZED] 直接返回 BGR numpy array，跳过所有颜色转换!
+                # 编码器会直接用 cv2.imencode，也是 BGR 格式
+                return cropped  # 返回 numpy array 而不是 PIL Image
             except Exception as e:
                 # Only print non-bounds errors to avoid log spam
                 if "bounds" not in str(e):
@@ -690,17 +690,20 @@ async def stream(websocket: WebSocket):
                     from encoders import get_encoder_manager
                     encoder = get_encoder_manager()
                     encoded_data, format_type = encoder.encode(screenshot)
-                    img_base64 = base64.b64encode(encoded_data).decode()
                     
+                    # [BINARY WEBSOCKET] 发送二进制数据而非 Base64
+                    # 先发送元数据 JSON，再发送二进制图像
                     await websocket.send_json({
-                        "type": "frame",
-                        "data": img_base64,
-                        "format": format_type,  # 告知客户端格式
-                        "encoder": encoder.name,  # 当前使用的编码器
+                        "type": "frame_meta",
+                        "format": format_type,
+                        "encoder": encoder.name,
                         "width": width,
                         "height": height,
+                        "size": len(encoded_data),
                         "window": window_title[:50] if window_title else "未知"
                     })
+                    # 直接发送二进制数据，省去 Base64 的 33% 开销
+                    await websocket.send_bytes(encoded_data)
                 elif skipped:
                     # Tell client we are handling a skipped window
                     await websocket.send_json({

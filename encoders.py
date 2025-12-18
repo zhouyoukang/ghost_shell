@@ -88,19 +88,33 @@ class JPEGEncoder(BaseEncoder):
     def format_type(self) -> str:
         return "jpeg"
     
-    def encode(self, image: Image.Image) -> bytes:
+    def encode(self, image) -> bytes:
+        """Encode image to JPEG bytes.
+        
+        Args:
+            image: PIL.Image or numpy array (BGR format from DXcam)
+        """
         if self._use_cv2:
-            # CV2 encoding is 2-3x faster than PIL
-            img_array = np.array(image)
-            # Convert RGB to BGR for cv2
-            if len(img_array.shape) == 3 and img_array.shape[2] == 3:
-                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            # 检查是否已经是 numpy array (来自 DXcam 的 BGR 格式)
+            if isinstance(image, np.ndarray):
+                # 已经是 BGR numpy array，直接编码，不需要任何转换!
+                img_array = image
+            else:
+                # PIL Image - 需要转换
+                img_array = np.array(image)
+                # Convert RGB to BGR for cv2
+                if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            
             # Encode with quality parameter
             encode_param = [cv2.IMWRITE_JPEG_QUALITY, self.quality]
             _, encoded = cv2.imencode('.jpg', img_array, encode_param)
             return encoded.tobytes()
         else:
-            # PIL fallback
+            # PIL fallback - 需要 PIL Image
+            if isinstance(image, np.ndarray):
+                # Convert BGR numpy to PIL RGB
+                image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
             buf = io.BytesIO()
             image.save(buf, format='JPEG', quality=self.quality)
             return buf.getvalue()
