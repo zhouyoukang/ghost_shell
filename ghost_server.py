@@ -722,6 +722,11 @@ async def stream(websocket: WebSocket):
 
             except Exception as e:
                 # Catch transient errors inside the loop to avoid disconnecting!
+                error_msg = str(e)
+                # Break loop if WebSocket is closed
+                if "close" in error_msg.lower() or "closed" in error_msg.lower():
+                    print(f"[STREAM] WebSocket closed, exiting loop")
+                    break
                 print(f"[STREAM LOOP ERROR] {e}")
                 await asyncio.sleep(0.1) # Brief pause on error
 
