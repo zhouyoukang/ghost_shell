@@ -287,7 +287,8 @@
                 <div class="status-subtext" id="statusSubtext">请在前台激活任意窗口</div>
             </div>
             <div class="fps" id="fps">0 FPS</div>
-            <div class="fps" id="bandwidth" style="right: 60px;">0 KB/s</div>
+            <div class="fps" id="bandwidth" style="right: 60px;">0 MB</div>
+            <div class="fps" id="encoderInfo" style="right: 110px; font-size: 0.55rem;">JPEG</div>
         </div>
         <div class="controls">
             <!-- Row 1: Voice + Fullscreen + Adapt -->
@@ -490,6 +491,11 @@
                         // Track bandwidth (base64 is ~4/3 of original size)
                         const frameBytes = data.data.length * 0.75;
                         updateBandwidth(frameBytes);
+
+                        // Display encoder info if provided
+                        if (data.encoder) {
+                            document.getElementById('encoderInfo').textContent = data.encoder;
+                        }
 
                         // [Real-time Update] Sync UI with current window title from server
                         // Only update if we are not in locked mode

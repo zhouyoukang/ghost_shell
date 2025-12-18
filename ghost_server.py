@@ -684,15 +684,17 @@ async def stream(websocket: WebSocket):
                 
                 # Send logic
                 if screenshot:
-                    # [保持原画质] DXcam优先已启用，画质保持原样
-                    img_byte_arr = io.BytesIO()
-                    screenshot.save(img_byte_arr, format='JPEG', quality=85)
-                    img_byte_arr.seek(0)
-                    img_base64 = base64.b64encode(img_byte_arr.read()).decode()
+                    # [MULTI-BACKEND] 使用最优编码器 (NVENC > FFmpeg > JPEG)
+                    from encoders import get_encoder_manager
+                    encoder = get_encoder_manager()
+                    encoded_data, format_type = encoder.encode(screenshot)
+                    img_base64 = base64.b64encode(encoded_data).decode()
                     
                     await websocket.send_json({
                         "type": "frame",
                         "data": img_base64,
+                        "format": format_type,  # 告知客户端格式
+                        "encoder": encoder.name,  # 当前使用的编码器
                         "width": width,
                         "height": height,
                         "window": window_title[:50] if window_title else "未知"
