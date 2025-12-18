@@ -1399,45 +1399,41 @@
 
                 // Handle Modifiers (Ctrl+Click etc)
                 const activeModifiers = Object.keys(modifiers).filter(k => modifiers[k]);
-                // If modifiers active, we might need a custom endpoint or just assume server doesn't hold keys?
-                // Actually server's 'click' uses pyautogui.click. 
-                // We should probably send modifiers if we want Shift+Click.
-                // Our current 'click' endpoint doesn't support modifiers param clearly, 
-                // but we can send "mousedown" + "mouseup" or update server 'click' to take modifiers?
 
-                // For simplicity and robustness with existing server:
-                // If modifiers are active, let's use a sequence: KeyDown -> Click -> KeyUp for sticky keys?
-                // Or better: Server's 'click' is instantaneous. 
-                // If we want Shift+Click, we need to hold Shift.
-                // Since this is a simple implementation: 
-                // IF MODIFIERS ACTIVE -> Use 'hotkey' action with click? No.
+                // 服务端现已支持 keydown/keyup，可以实现真正的修饰键+点击
+                try {
+                    // 1. 按下所有激活的修饰键
+                    for (const mod of activeModifiers) {
+                        await fetch(`${API}/interact`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'keydown', key: mod })
+                        });
+                    }
 
-                // BEST APPROACH: Just send click. 
-                // Users can use the "Ctrl" toggle button. Does the server hold Ctrl state?
-                // No, server is stateless regarding modifier hold unless we tell it to hold.
-                // But we don't have separate hold/release endpoints for keys in this version (only mouse).
-                // Wait, we just added mouse primitives. We didn't add Key primitives (keyDown/keyUp).
-                // So Shift+Click might be tricky without key primitives.
+                    // 2. 执行点击
+                    await fetch(`${API}/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'click', x: coords.x, y: coords.y })
+                    });
 
-                // Workaround: We implemented Mouse Down/Up. 
-                // We did NOT implement Key Down/Up in this pass.
-                // However, for dragging (files), Mouse Down/Up is sufficient.
-                // For Shift+Select, we need Key Down.
+                    // 3. 释放所有修饰键
+                    for (const mod of activeModifiers) {
+                        await fetch(`${API}/interact`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'keyup', key: mod })
+                        });
+                    }
 
-                // Re-checking Implementation Plan: "添加常用快捷键栏... Ctrl (切换式)".
-                // If I toggle Ctrl ON in UI, does it send "Ctrl Down" to server?
-                // My plan didn't specify KeyDown support on server. 
-                // This is a missing gap. I should add KeyDown/KeyUp support to server if I want real "Hold Ctrl" functionality.
-
-                // Let's stick to the plan: "Implement Drag". That uses MouseDown/Up.
-                // For "Shortcuts", we have sendCombine(['ctrl', 'c']). That works.
-                // For "Ctrl+Click", we need KeyDown.
-
-                await fetch(`${API}/interact`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'click', x: coords.x, y: coords.y })
-                });
+                    if (activeModifiers.length > 0) {
+                        addLog(`${activeModifiers.join('+')}+点击`);
+                        resetModifiers();
+                    }
+                } catch (e) {
+                    addLog('点击失败: ' + e, true);
+                }
             }
         });
 

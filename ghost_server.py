@@ -844,6 +844,18 @@ async def interact(req: InteractionRequest):
             # Double click
             pyautogui.doubleClick(abs_x, abs_y)
             return {"status": "double_clicked", "pos": (abs_x, abs_y)}
+        elif req.action == "middle_click":
+            # Middle mouse button click
+            pyautogui.click(abs_x, abs_y, button='middle')
+            return {"status": "middle_clicked", "pos": (abs_x, abs_y)}
+        elif req.action == "keydown":
+            # Hold a key down (for modifier+click combinations)
+            pyautogui.keyDown(req.key)
+            return {"status": "key_down", "key": req.key}
+        elif req.action == "keyup":
+            # Release a held key
+            pyautogui.keyUp(req.key)
+            return {"status": "key_up", "key": req.key}
         elif req.action == "resize_window":
             # Resize the locked window to specified dimensions
             if not LOCKED_WINDOW_TITLE:
