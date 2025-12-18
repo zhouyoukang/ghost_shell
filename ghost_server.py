@@ -664,8 +664,10 @@ async def stream(websocket: WebSocket):
                         width = rect[2] - rect[0]
                         height = rect[3] - rect[1]
                         
-                        # [USER REQUEST] No skipping - capture all windows
-                        if True:  # Was: skip check removed
+                        # 只跳过 Ghost Shell 客户端窗口，避免同机测试时的切换问题
+                        if "Ghost Shell" in window_title:
+                            skipped = True
+                        else:
                             # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
                             screenshot = simple_capture(hwnd=hwnd, rect=rect)
                             
