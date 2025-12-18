@@ -274,9 +274,9 @@ def simple_capture(hwnd=None, rect=None):
                 if cropped.size == 0:
                     raise ValueError(f"Empty crop result: {cropped.shape}")
 
-                # [OPTIMIZED] 直接返回 BGR numpy array，跳过所有颜色转换!
-                # 编码器会直接用 cv2.imencode，也是 BGR 格式
-                return cropped  # 返回 numpy array 而不是 PIL Image
+                # [OPTIMIZED] Keep BGR format - cv2 encoder expects BGR anyway
+                # Skip conversion to save CPU: was BGR->RGB->BGR, now just BGR
+                return Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
             except Exception as e:
                 # Only print non-bounds errors to avoid log spam
                 if "bounds" not in str(e):
@@ -656,6 +656,7 @@ async def stream(websocket: WebSocket):
                 else:
                     # Auto-detect mode: use v2_simplified direct approach
                     hwnd, rect = get_foreground_hwnd_and_rect()
+                    skipped = False
                     if hwnd and rect:
                         window_title = win32gui.GetWindowText(hwnd)
                         # [COORDINATE FIX] 使用 rect 的尺寸 (这是点击坐标的目标尺寸)
@@ -663,7 +664,7 @@ async def stream(websocket: WebSocket):
                         width = rect[2] - rect[0]
                         height = rect[3] - rect[1]
                         
-                        # [用户要求] 捕获所有窗口，不跳过任何窗口
+                        # [无跳过] 捕获所有窗口，包括 Ghost Shell 客户端
                         # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
                         screenshot = simple_capture(hwnd=hwnd, rect=rect)
                         
@@ -675,8 +676,9 @@ async def stream(websocket: WebSocket):
                                 screenshot = None
                 
                 # Update global state for lock_current
+                # Only update if valid content (not skipped), so locking "current" works as "last valid"
                 global CURRENT_DISPLAY_WINDOW
-                if window_title:
+                if window_title and not skipped:
                      CURRENT_DISPLAY_WINDOW = window_title
                 
                 # Send logic
@@ -685,19 +687,17 @@ async def stream(websocket: WebSocket):
                     from encoders import get_encoder_manager
                     encoder = get_encoder_manager()
                     encoded_data, format_type = encoder.encode(screenshot)
-                    
-                    # 使用 Base64 JSON 格式 (稳定可靠)
                     img_base64 = base64.b64encode(encoded_data).decode()
+                    
                     await websocket.send_json({
                         "type": "frame",
                         "data": img_base64,
-                        "format": format_type,
-                        "encoder": encoder.name,
+                        "format": format_type,  # 告知客户端格式
+                        "encoder": encoder.name,  # 当前使用的编码器
                         "width": width,
                         "height": height,
                         "window": window_title[:50] if window_title else "未知"
                     })
-
                 elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
                      await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
                 elif not screenshot and not LOCKED_WINDOW_TITLE:
