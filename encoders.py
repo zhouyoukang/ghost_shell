@@ -170,14 +170,16 @@ class FFmpegEncoder(BaseEncoder):
 
 
 class NVENCEncoder(BaseEncoder):
-    """NVIDIA NVENC hardware encoder (~1-2ms per frame)."""
+    """NVIDIA NVENC hardware encoder (~1-2ms per frame).
+    Note: Currently falls back to JPEG as H.264 streaming requires frame buffer management.
+    """
     
     def __init__(self, width: int = 1920, height: int = 1080, fps: int = 30):
         self.width = width
         self.height = height
         self.fps = fps
-        self.process: Optional[subprocess.Popen] = None
-        print(f"🚀 Using NVENC hardware encoder ({width}x{height} @ {fps}fps)")
+        self._jpeg_fallback = JPEGEncoder(quality=85)
+        print(f"🚀 Using NVENC encoder (with JPEG fallback for now)")
     
     @property
     def name(self) -> str:
@@ -185,62 +187,15 @@ class NVENCEncoder(BaseEncoder):
     
     @property
     def format_type(self) -> str:
-        return "h264"
-    
-    def _ensure_process(self, width: int, height: int):
-        """Start FFmpeg with NVENC encoder."""
-        if self.process and (self.width != width or self.height != height):
-            self.cleanup()
-        
-        if self.process is None:
-            self.width = width
-            self.height = height
-            self.process = subprocess.Popen([
-                'ffmpeg', '-y',
-                '-f', 'rawvideo',
-                '-pix_fmt', 'rgb24',
-                '-s', f'{width}x{height}',
-                '-r', str(self.fps),
-                '-i', '-',
-                '-c:v', 'h264_nvenc',
-                '-preset', 'p1',  # Fastest NVENC preset
-                '-tune', 'll',   # Low latency
-                '-zerolatency', '1',
-                '-f', 'h264',
-                '-'
-            ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        return "jpeg"  # Currently falls back to JPEG
     
     def encode(self, image: Image.Image) -> bytes:
-        width, height = image.size
-        self._ensure_process(width, height)
-        
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        raw_data = image.tobytes()
-        
-        try:
-            self.process.stdin.write(raw_data)
-            self.process.stdin.flush()
-            # Same limitation as FFmpeg - streaming is complex
-            return self._fallback_jpeg(image)
-        except Exception as e:
-            print(f"[NVENC] Encode error: {e}")
-            return self._fallback_jpeg(image)
-    
-    def _fallback_jpeg(self, image: Image.Image) -> bytes:
-        buf = io.BytesIO()
-        image.save(buf, format='JPEG', quality=85)
-        return buf.getvalue()
+        # For now, use JPEG as H.264 streaming is complex
+        # TODO: Implement proper NVENC streaming with frame buffer
+        return self._jpeg_fallback.encode(image)
     
     def cleanup(self):
-        if self.process:
-            try:
-                self.process.stdin.close()
-                self.process.terminate()
-                self.process.wait(timeout=1)
-            except:
-                pass
-            self.process = None
+        pass
 
 
 class EncoderManager:
