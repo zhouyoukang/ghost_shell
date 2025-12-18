@@ -659,6 +659,11 @@ async def stream(websocket: WebSocket):
                     skipped = False
                     if hwnd and rect:
                         window_title = win32gui.GetWindowText(hwnd)
+                        # [COORDINATE FIX] 使用 rect 的尺寸 (这是点击坐标的目标尺寸)
+                        # 而不是 screenshot.size (可能因DPI缩放不同)
+                        width = rect[2] - rect[0]
+                        height = rect[3] - rect[1]
+                        
                         # [USER REQUEST] No skipping - capture all windows
                         if True:  # Was: skip check removed
                             # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
@@ -667,14 +672,9 @@ async def stream(websocket: WebSocket):
                             # BitBlt 备选 (窗口被遮挡时)
                             if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
                                 try:
-                                    w = rect[2] - rect[0]
-                                    h = rect[3] - rect[1]
-                                    screenshot = capture_window_background(hwnd, w, h)
+                                    screenshot = capture_window_background(hwnd, width, height)
                                 except:
                                     screenshot = None
-
-                            if screenshot:
-                                width, height = screenshot.size
                 
                 # Update global state for lock_current
                 # Only update if valid content (not skipped), so locking "current" works as "last valid"
