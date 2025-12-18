@@ -684,16 +684,9 @@ async def stream(websocket: WebSocket):
                 
                 # Send logic
                 if screenshot:
-                    # [PHASE 1 OPTIMIZATION] 分辨率缩放 70% + JPEG质量60
-                    SCALE_FACTOR = 0.7
-                    if SCALE_FACTOR < 1.0:
-                        new_w = int(width * SCALE_FACTOR)
-                        new_h = int(height * SCALE_FACTOR)
-                        screenshot = screenshot.resize((new_w, new_h), Image.LANCZOS)
-                        width, height = new_w, new_h
-                    
+                    # [保持原画质] DXcam优先已启用，画质保持原样
                     img_byte_arr = io.BytesIO()
-                    screenshot.save(img_byte_arr, format='JPEG', quality=60)
+                    screenshot.save(img_byte_arr, format='JPEG', quality=85)
                     img_byte_arr.seek(0)
                     img_base64 = base64.b64encode(img_byte_arr.read()).decode()
                     
