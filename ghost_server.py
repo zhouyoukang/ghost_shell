@@ -661,20 +661,17 @@ async def stream(websocket: WebSocket):
                         window_title = win32gui.GetWindowText(hwnd)
                         # [USER REQUEST] No skipping - capture all windows
                         if True:  # Was: skip check removed
-                            # Optimize: Try fast BitBlt capture first if available (much faster than ImageGrab)
-                            if BACKGROUND_CAPTURE_AVAILABLE:
+                            # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
+                            screenshot = simple_capture(hwnd=hwnd, rect=rect)
+                            
+                            # BitBlt 备选 (窗口被遮挡时)
+                            if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
                                 try:
-                                    # Calculate width/height from rect
                                     w = rect[2] - rect[0]
                                     h = rect[3] - rect[1]
                                     screenshot = capture_window_background(hwnd, w, h)
                                 except:
                                     screenshot = None
-                            
-                            # Fallback to simple_capture (ImageGrab) if BitBlt fails or not available
-                            if screenshot is None:
-                                # Pass rect to simple_capture to avoid re-calculating
-                                screenshot = simple_capture(hwnd=hwnd, rect=rect)
 
                             if screenshot:
                                 width, height = screenshot.size
@@ -687,9 +684,16 @@ async def stream(websocket: WebSocket):
                 
                 # Send logic
                 if screenshot:
-                    # [PERFORMANCE] Send original quality/size as requested (restoring behavior)
+                    # [PHASE 1 OPTIMIZATION] 分辨率缩放 70% + JPEG质量60
+                    SCALE_FACTOR = 0.7
+                    if SCALE_FACTOR < 1.0:
+                        new_w = int(width * SCALE_FACTOR)
+                        new_h = int(height * SCALE_FACTOR)
+                        screenshot = screenshot.resize((new_w, new_h), Image.LANCZOS)
+                        width, height = new_w, new_h
+                    
                     img_byte_arr = io.BytesIO()
-                    screenshot.save(img_byte_arr, format='JPEG', quality=85)
+                    screenshot.save(img_byte_arr, format='JPEG', quality=60)
                     img_byte_arr.seek(0)
                     img_base64 = base64.b64encode(img_byte_arr.read()).decode()
                     
