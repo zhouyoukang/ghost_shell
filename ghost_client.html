@@ -475,81 +475,58 @@
                     }, 5000);
                 };
 
-                // 存储帧元数据，等待二进制数据
-                let pendingFrameMeta = null;
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'frame') {
+                        // Hide overlay on frame
+                        hideStatusOverlay();
 
-                ws.onmessage = async (event) => {
-                    // [BINARY WEBSOCKET] 处理二进制或 JSON 消息
-                    if (event.data instanceof Blob) {
-                        // 二进制图像数据
-                        if (pendingFrameMeta) {
-                            hideStatusOverlay();
+                        screen.src = 'data:image/jpeg;base64,' + data.data;
+                        // 保存服务端发送的窗口尺寸
+                        serverWindowWidth = data.width;
+                        serverWindowHeight = data.height;
+                        frameCount++;
+                        updateFps();
 
-                            // 直接使用 Blob URL，比 data: URL 更高效
-                            const blob = event.data;
-                            const url = URL.createObjectURL(blob);
+                        // Track bandwidth (base64 is ~4/3 of original size)
+                        const frameBytes = data.data.length * 0.75;
+                        updateBandwidth(frameBytes);
 
-                            // 释放旧的 Blob URL
-                            if (screen.src && screen.src.startsWith('blob:')) {
-                                URL.revokeObjectURL(screen.src);
+                        // Display encoder info if provided
+                        if (data.encoder) {
+                            document.getElementById('encoderInfo').textContent = data.encoder;
+                        }
+
+                        // [Real-time Update] Sync UI with current window title from server
+                        // Only update if we are not in locked mode
+                        const currentEl = document.getElementById('currentWindow');
+                        if (data.window && !currentEl.querySelector('.locked')) {
+                            if (currentEl.textContent !== data.window) {
+                                currentEl.textContent = data.window;
+                                updateCloseButton();
                             }
-                            screen.src = url;
-
-                            serverWindowWidth = pendingFrameMeta.width;
-                            serverWindowHeight = pendingFrameMeta.height;
-                            frameCount++;
-                            updateFps();
-
-                            // Track bandwidth
-                            updateBandwidth(blob.size);
-
-                            // Display encoder info
-                            if (pendingFrameMeta.encoder) {
-                                document.getElementById('encoderInfo').textContent = pendingFrameMeta.encoder;
-                            }
-
-                            // Update window title
+                        }
+                    } else if (data.type === 'status') {
+                        // Show overlay for status messages
+                        if (data.status === 'skipped') {
+                            showStatusOverlay('🛡️', '检测到本机窗口 (已暂停)', `正在忽略: ${data.window || '未知'}`);
+                            // [RED X FIX] Even if skipped, update the current window title so we can close it
                             const currentEl = document.getElementById('currentWindow');
-                            if (pendingFrameMeta.window && !currentEl.querySelector('.locked')) {
-                                if (currentEl.textContent !== pendingFrameMeta.window) {
-                                    currentEl.textContent = pendingFrameMeta.window;
+                            if (data.window && !currentEl.querySelector('.locked')) {
+                                if (currentEl.textContent !== data.window) {
+                                    currentEl.textContent = data.window;
                                     updateCloseButton();
                                 }
                             }
-
-                            pendingFrameMeta = null;
+                        } else if (data.status === 'searching') {
+                            showStatusOverlay('🔍', '正在搜索窗口...', '请在前台激活任意窗口');
+                        } else {
+                            showStatusOverlay('ℹ️', '状态信息', data.message || '未知状态');
                         }
-                    } else {
-                        // JSON 消息
-                        const data = JSON.parse(event.data);
-
-                        if (data.type === 'frame_meta') {
-                            // 存储元数据，等待二进制帧
-                            pendingFrameMeta = data;
-                        } else if (data.type === 'frame') {
-                            // 兼容旧的 Base64 格式
-                            hideStatusOverlay();
-                            screen.src = 'data:image/jpeg;base64,' + data.data;
-                            serverWindowWidth = data.width;
-                            serverWindowHeight = data.height;
-                            frameCount++;
-                            updateFps();
-                            const frameBytes = data.data.length * 0.75;
-                            updateBandwidth(frameBytes);
-                            if (data.encoder) {
-                                document.getElementById('encoderInfo').textContent = data.encoder;
-                            }
-                        } else if (data.type === 'status') {
-                            if (data.status === 'searching') {
-                                showStatusOverlay('🔍', '正在搜索窗口...', '请在前台激活任意窗口');
-                            } else {
-                                showStatusOverlay('ℹ️', '状态信息', data.message || '未知状态');
-                            }
-                        } else if (data.type === 'error') {
-                            addLog('错误: ' + data.message, true);
-                            if (data.message.includes('截图失败')) {
-                                showStatusOverlay('⚠️', '截图失败', data.message);
-                            }
+                    } else if (data.type === 'error') {
+                        addLog('错误: ' + data.message, true);
+                        if (data.message.includes('截图失败')) {
+                            showStatusOverlay('⚠️', '截图失败', data.message);
                         }
                     }
                 };

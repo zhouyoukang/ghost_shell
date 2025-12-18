@@ -668,16 +668,19 @@ async def stream(websocket: WebSocket):
                         width = rect[2] - rect[0]
                         height = rect[3] - rect[1]
                         
-                        # [无跳过] 捕获所有窗口，包括 Ghost Shell 客户端
-                        # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
-                        screenshot = simple_capture(hwnd=hwnd, rect=rect)
-                        
-                        # BitBlt 备选 (窗口被遮挡时)
-                        if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
-                            try:
-                                screenshot = capture_window_background(hwnd, width, height)
-                            except:
-                                screenshot = None
+                        # [INFINITE LOOP FIX] 如果是 Ghost Shell 且未锁定，则跳过
+                        if "Ghost Shell" in window_title and not LOCKED_WINDOW_TITLE:
+                            skipped = True
+                        else:
+                            # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
+                            screenshot = simple_capture(hwnd=hwnd, rect=rect)
+                            
+                            # BitBlt 备选 (窗口被遮挡时)
+                            if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
+                                try:
+                                    screenshot = capture_window_background(hwnd, width, height)
+                                except:
+                                    screenshot = None
                 
                 # Update global state for lock_current
                 # 只有在非锁定模式下才更新 CURRENT_DISPLAY_WINDOW
@@ -706,6 +709,14 @@ async def stream(websocket: WebSocket):
                         "height": height,
                         "window": window_title[:50] if window_title else "未知"
                     })
+                elif skipped:
+                     # Tell client we are handling a skipped window
+                     # [RED X FIX] 发送 skipped 状态同时也发送窗口标题，以便客户端更新关闭按钮
+                     await websocket.send_json({
+                        "type": "status", 
+                        "status": "skipped",
+                        "window": window_title[:50]
+                     })
                 elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
                      await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
                 elif not screenshot and not LOCKED_WINDOW_TITLE:
@@ -751,6 +762,13 @@ async def interact(req: InteractionRequest):
         if time_since_change < 0.5:  # 500ms 内的切换，使用上一个窗口
             print(f"[INTERACT] Quick switch detected ({time_since_change*1000:.0f}ms ago), using LAST_VALID_WINDOW: '{LAST_VALID_WINDOW}'")
             target_title = LAST_VALID_WINDOW
+            
+            # [AUTO-LOCK] 自动锁定到目标窗口，防止后续帧变成浏览器
+            if not LOCKED_WINDOW_TITLE:
+                # Direct logic since we are in the same module
+                LOCKED_WINDOW_TITLE = target_title
+                PENDING_ACTIVATION = False
+                print(f"[AUTO-LOCK] Automatically locked to '{target_title}' due to interaction during switch")
     
     # 使用目标窗口标题找到窗口
     win = None
