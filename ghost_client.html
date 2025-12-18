@@ -540,9 +540,7 @@
                                 document.getElementById('encoderInfo').textContent = data.encoder;
                             }
                         } else if (data.type === 'status') {
-                            if (data.status === 'skipped') {
-                                showStatusOverlay('🛡️', '检测到本机窗口 (已暂停)', `正在忽略: ${data.window || '未知'}`);
-                            } else if (data.status === 'searching') {
+                            if (data.status === 'searching') {
                                 showStatusOverlay('🔍', '正在搜索窗口...', '请在前台激活任意窗口');
                             } else {
                                 showStatusOverlay('ℹ️', '状态信息', data.message || '未知状态');

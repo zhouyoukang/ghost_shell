@@ -686,19 +686,17 @@ async def stream(websocket: WebSocket):
                     encoder = get_encoder_manager()
                     encoded_data, format_type = encoder.encode(screenshot)
                     
-                    # [BINARY WEBSOCKET] 发送二进制数据而非 Base64
-                    # 先发送元数据 JSON，再发送二进制图像
+                    # 使用 Base64 JSON 格式 (稳定可靠)
+                    img_base64 = base64.b64encode(encoded_data).decode()
                     await websocket.send_json({
-                        "type": "frame_meta",
+                        "type": "frame",
+                        "data": img_base64,
                         "format": format_type,
                         "encoder": encoder.name,
                         "width": width,
                         "height": height,
-                        "size": len(encoded_data),
                         "window": window_title[:50] if window_title else "未知"
                     })
-                    # 直接发送二进制数据，省去 Base64 的 33% 开销
-                    await websocket.send_bytes(encoded_data)
 
                 elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
                      await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
