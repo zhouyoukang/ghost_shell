@@ -656,7 +656,6 @@ async def stream(websocket: WebSocket):
                 else:
                     # Auto-detect mode: use v2_simplified direct approach
                     hwnd, rect = get_foreground_hwnd_and_rect()
-                    skipped = False
                     if hwnd and rect:
                         window_title = win32gui.GetWindowText(hwnd)
                         # [COORDINATE FIX] 使用 rect 的尺寸 (这是点击坐标的目标尺寸)
@@ -664,24 +663,20 @@ async def stream(websocket: WebSocket):
                         width = rect[2] - rect[0]
                         height = rect[3] - rect[1]
                         
-                        # 只跳过 Ghost Shell 客户端窗口，避免同机测试时的切换问题
-                        if "Ghost Shell" in window_title:
-                            skipped = True
-                        else:
-                            # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
-                            screenshot = simple_capture(hwnd=hwnd, rect=rect)
-                            
-                            # BitBlt 备选 (窗口被遮挡时)
-                            if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
-                                try:
-                                    screenshot = capture_window_background(hwnd, width, height)
-                                except:
-                                    screenshot = None
+                        # [用户要求] 捕获所有窗口，不跳过任何窗口
+                        # [PHASE 1 OPTIMIZATION] DXcam优先 (最快)
+                        screenshot = simple_capture(hwnd=hwnd, rect=rect)
+                        
+                        # BitBlt 备选 (窗口被遮挡时)
+                        if screenshot is None and BACKGROUND_CAPTURE_AVAILABLE:
+                            try:
+                                screenshot = capture_window_background(hwnd, width, height)
+                            except:
+                                screenshot = None
                 
                 # Update global state for lock_current
-                # Only update if valid content (not skipped), so locking "current" works as "last valid"
                 global CURRENT_DISPLAY_WINDOW
-                if window_title and not skipped:
+                if window_title:
                      CURRENT_DISPLAY_WINDOW = window_title
                 
                 # Send logic
@@ -704,13 +699,7 @@ async def stream(websocket: WebSocket):
                     })
                     # 直接发送二进制数据，省去 Base64 的 33% 开销
                     await websocket.send_bytes(encoded_data)
-                elif skipped:
-                    # Tell client we are handling a skipped window
-                    await websocket.send_json({
-                        "type": "status", 
-                        "status": "skipped",
-                        "window": window_title[:50]
-                    })
+
                 elif not (hwnd and rect) and not LOCKED_WINDOW_TITLE:
                      await websocket.send_json({"type": "status", "status": "searching", "message": "正在搜索目标窗口..."})
                 elif not screenshot and not LOCKED_WINDOW_TITLE:
