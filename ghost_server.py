@@ -274,9 +274,9 @@ def simple_capture(hwnd=None, rect=None):
                 if cropped.size == 0:
                     raise ValueError(f"Empty crop result: {cropped.shape}")
 
-                # Convert BGR to RGB for PIL
-                rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-                return Image.fromarray(rgb)
+                # [OPTIMIZED] Keep BGR format - cv2 encoder expects BGR anyway
+                # Skip conversion to save CPU: was BGR->RGB->BGR, now just BGR
+                return Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
             except Exception as e:
                 # Only print non-bounds errors to avoid log spam
                 if "bounds" not in str(e):

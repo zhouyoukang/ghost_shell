@@ -70,24 +70,40 @@ class BaseEncoder(ABC):
 
 
 class JPEGEncoder(BaseEncoder):
-    """Standard JPEG encoder using PIL (~30-50ms)."""
+    """JPEG encoder - uses cv2 if available (faster), otherwise PIL."""
     
     def __init__(self, quality: int = 85):
         self.quality = quality
-        print(f"📷 Using JPEG encoder (quality={quality})")
+        self._use_cv2 = CV2_AVAILABLE and NUMPY_AVAILABLE
+        if self._use_cv2:
+            print(f"📷 Using CV2 JPEG encoder (quality={quality}) - FAST")
+        else:
+            print(f"📷 Using PIL JPEG encoder (quality={quality})")
     
     @property
     def name(self) -> str:
-        return "JPEG"
+        return "JPEG-CV2" if self._use_cv2 else "JPEG"
     
     @property
     def format_type(self) -> str:
         return "jpeg"
     
     def encode(self, image: Image.Image) -> bytes:
-        buf = io.BytesIO()
-        image.save(buf, format='JPEG', quality=self.quality)
-        return buf.getvalue()
+        if self._use_cv2:
+            # CV2 encoding is 2-3x faster than PIL
+            img_array = np.array(image)
+            # Convert RGB to BGR for cv2
+            if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            # Encode with quality parameter
+            encode_param = [cv2.IMWRITE_JPEG_QUALITY, self.quality]
+            _, encoded = cv2.imencode('.jpg', img_array, encode_param)
+            return encoded.tobytes()
+        else:
+            # PIL fallback
+            buf = io.BytesIO()
+            image.save(buf, format='JPEG', quality=self.quality)
+            return buf.getvalue()
 
 
 class FFmpegEncoder(BaseEncoder):
