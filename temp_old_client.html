@@ -221,7 +221,7 @@
     </header>
     <main>
         <div class="screen-container">
-            <canvas id="screen" style="max-width: 100%; max-height: calc(100vh - 120px); cursor: crosshair;"></canvas>
+            <img id="screen" src="" alt="远程画面">
             <div class="fps" id="fps">0 FPS</div>
         </div>
         <div class="controls">
@@ -291,22 +291,26 @@
                 "></div>
             </div>
 
+            <!-- Touch hints -->
+            <div style="font-size: 0.65rem; color: #666; text-align: center; margin: 8px 0;">
+                📱 悬浮球：长按拖动吸附 | 向内拉动唤出菜单
+            </div>
+
             <!-- Hidden input for keyboard capture -->
-            <input type="text" id="mobileKeyboardInput" autocomplete="off" autocorrect="off" autocapitalize="off"
-                spellcheck="false"
-                style="position: fixed; left: -9999px; top: 50%; width: 1px; height: 1px; opacity: 0.01; z-index: 9999; pointer-events: none;"
-                placeholder="在此输入..." inputmode="text">
+            <input type="text" id="hiddenKeyboardInput" style="position: absolute; left: -9999px; opacity: 0;"
+                oninput="onRealtimeInput(event)" onkeydown="onRealtimeKeyDown(event)" onblur="onKeyboardBlur()"
+                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+            <!-- Touch hints for mobile -->
+            <div style="font-size: 0.65rem; color: #666; text-align: center; margin: 8px 0;">
+                📱 点击=左键 | 双击=右键 | 快滑=滚动 | 按住拖=连续滚 | 双指=缩放
+            </div>
 
             <!-- Collapsible advanced section -->
             <details style="margin-top: 8px;">
-                <summary style="cursor: pointer; color: #00d9ff; font-size: 0.85rem;">▶ ⚙️ 更多选项</summary>
+                <summary style="cursor: pointer; color: #00d9ff; font-size: 0.85rem;">⚙️ 更多选项</summary>
 
                 <div style="margin-top: 10px;">
-                    <!-- Touch hints -->
-                    <div style="font-size: 0.65rem; color: #888; margin-bottom: 10px; line-height: 1.5;">
-                        📱 悬浮球：长按拖动吸附 | 向内拉动唤出菜单<br>
-                        📱 点击=左键 | 双击=右键 | 快滑=滚动 | 按住拖=连续滚 | 双指=缩放
-                    </div>
 
                     <!-- App Launcher -->
                     <div class="control-group" style="margin-top: 12px;">
@@ -316,18 +320,24 @@
                     </div>
                     <button onclick="openApp()">打开软件</button>
 
-                    <!-- Log (moved here) -->
+                    <!-- FPS Control -->
                     <div class="control-group" style="margin-top: 12px;">
-                        <label>📋 操作日志</label>
-                        <div class="log" id="log" style="max-height: 80px; font-size: 0.65rem;"></div>
-                    </div>
-
-                    <!-- Current window indicator (moved here) -->
-                    <div class="window-info" style="font-size: 0.7rem; text-align: center; margin-top: 8px;">
-                        当前: <span id="currentWindow">-</span>
+                        <label>帧率: <span id="fpsValue">30</span> FPS</label>
+                        <input type="range" id="fpsSlider" min="5" max="60" value="30"
+                            oninput="updateFpsTarget(this.value)" style="width: 100%;">
                     </div>
                 </div>
             </details>
+
+            <!-- Compact log -->
+            <div class="control-group" style="margin-top: 8px;">
+                <div class="log" id="log" style="max-height: 80px; font-size: 0.65rem;"></div>
+            </div>
+
+            <!-- Current window indicator -->
+            <div class="window-info" style="font-size: 0.7rem; text-align: center;">
+                当前: <span id="currentWindow">-</span>
+            </div>
         </div>
     </main>
     <script>
@@ -348,7 +358,7 @@
         let hostname = window.location.hostname || 'localhost';
         if (hostname === 'localhost') hostname = '127.0.0.1';
 
-        const port = window.location.port || (window.location.protocol === 'https:' ? '8444' : '8000');
+        const port = window.location.port || (window.location.protocol === 'https:' ? '8443' : '8000');
         const API = `${window.location.protocol}//${hostname}:${port}`;
 
         function addLog(msg, isError = false) {
@@ -360,33 +370,7 @@
             if (log.children.length > 50) log.removeChild(log.firstChild);
         }
 
-        // Throttle function - limits how often a function can be called
-        // Essential for touchmove events which fire at 60+ Hz
-        function throttle(func, limit) {
-            let lastCall = 0;
-            let lastArgs = null;
-            let timeoutId = null;
-
-            return function (...args) {
-                const now = Date.now();
-                lastArgs = args;
-
-                if (now - lastCall >= limit) {
-                    lastCall = now;
-                    func.apply(this, args);
-                } else if (!timeoutId) {
-                    // Schedule trailing call
-                    timeoutId = setTimeout(() => {
-                        lastCall = Date.now();
-                        timeoutId = null;
-                        func.apply(this, lastArgs);
-                    }, limit - (now - lastCall));
-                }
-            };
-        }
-
-        // Throttled sendInteraction for high-frequency events (50ms = 20 calls/sec max)
-        let throttledSendInteraction = null;  // Will be initialized after sendInteraction is defined
+        // ... (lines 372-436 unchanged) ...
 
         function toggleConnection() {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -412,15 +396,13 @@
             // Use same port as page load
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             // Ensure we use the detected port for WebSocket too
-            const wsPort = window.location.port || (window.location.protocol === 'https:' ? '8444' : '8000');
+            const wsPort = window.location.port || (window.location.protocol === 'https:' ? '8443' : '8000');
             const url = `${protocol}//${host}:${wsPort}/stream`;
 
             addLog('正在连接 ' + url);
 
             try {
                 ws = new WebSocket(url);
-
-                ws.binaryType = 'arraybuffer'; // 接收二进制帧
 
                 ws.onopen = () => {
                     status.textContent = '已连接';
@@ -429,81 +411,24 @@
                     addLog('连接成功!');
                     refreshWindows();
 
+                    // 启动窗口列表自动刷新（每5秒）
                     if (windowRefreshTimer) clearInterval(windowRefreshTimer);
                     windowRefreshTimer = setInterval(() => {
-                        refreshWindowsQuiet();
+                        refreshWindowsQuiet();  // 静默刷新，不显示日志
                     }, 5000);
                 };
 
-                ws.onmessage = async (event) => {
-                    // 处理二进制图片数据
-                    if (event.data instanceof ArrayBuffer) {
-                        try {
-                            const blob = new Blob([event.data], { type: 'image/jpeg' });
-                            const bitmap = await createImageBitmap(blob);
-
-                            // 调整 Canvas 尺寸以匹配服务端源分辨率
-                            if (screen.width !== bitmap.width || screen.height !== bitmap.height) {
-                                screen.width = bitmap.width;
-                                screen.height = bitmap.height;
-                                // addLog(`虽然调整分辨率: ${bitmap.width}x${bitmap.height}`);
-                            }
-
-                            const ctx = screen.getContext('2d');
-                            if (!ctx) {
-                                throw new Error("无法获取 Canvas 2D 上下文");
-                            }
-                            ctx.drawImage(bitmap, 0, 0);
-
-                            // 这里不再直接读取 width/height，因为它们现在在 meta 帧中
-                            // 但 bitmap 本身包含了真实分辨率，直接用即可
-                            serverWindowWidth = bitmap.width;
-                            serverWindowHeight = bitmap.height;
-
-                            frameCount++;
-                            updateFps();
-
-                            // 手动释放位图资源（虽然 GC 会做，但显式释放更好）
-                            bitmap.close();
-                        } catch (err) {
-                            console.error("Render error:", err);
-                            addLog('渲染错误: ' + err.message, true);
-                        }
-                    }
-                    // 处理 JSON 元数据/控制信息
-                    else {
-                        try {
-                            const data = JSON.parse(event.data);
-                            if (data.type === 'meta') {
-                                // 元数据更新（通常在每一帧之前发送，或者变化时发送）
-                                serverWindowWidth = data.width;
-                                serverWindowHeight = data.height;
-                                // 可以在这里更新 UI 显示的窗口标题等
-                                if (data.window) {
-                                    // 可以在 UI 上显示当前窗口名 (可选)
-                                }
-                            } else if (data.type === 'result') {
-                                // Command execution result
-                                // addLog(`✓ ${data.status}`);  // Uncomment for verbose logging
-                            } else if (data.type === 'lock_result') {
-                                if (data.status === 'locked') {
-                                    addLog(`✅ 已锁定: ${data.title?.substring(0, 30)}`);
-                                    document.getElementById('lockBtn').textContent = '🔓 解锁';
-                                    document.getElementById('lockBtn').className = 'danger';
-                                    document.getElementById('currentWindow').innerHTML = `<span class="locked">🔒 ${data.title}</span>`;
-                                } else {
-                                    addLog(`锁定失败: ${data.message}`, true);
-                                }
-                            } else if (data.type === 'unlock_result') {
-                                addLog('🔓 已解锁，恢复自动跟随');
-                                document.getElementById('lockBtn').textContent = '🔒 锁定';
-                                document.getElementById('lockBtn').className = '';
-                            } else if (data.type === 'error') {
-                                addLog('错误: ' + data.message, true);
-                            }
-                        } catch (e) {
-                            console.error("JSON parse error:", e);
-                        }
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'frame') {
+                        screen.src = 'data:image/jpeg;base64,' + data.data;
+                        // 保存服务端发送的窗口尺寸
+                        serverWindowWidth = data.width;
+                        serverWindowHeight = data.height;
+                        frameCount++;
+                        updateFps();
+                    } else if (data.type === 'error') {
+                        addLog('错误: ' + data.message, true);
                     }
                 };
 
@@ -512,6 +437,7 @@
                     status.className = 'status disconnected';
                     status.onclick = toggleConnection;
                     addLog('已断开');
+                    // 停止窗口列表自动刷新
                     if (windowRefreshTimer) {
                         clearInterval(windowRefreshTimer);
                         windowRefreshTimer = null;
@@ -692,13 +618,18 @@
                 // 短暂延迟确保锁定生效
                 await new Promise(resolve => setTimeout(resolve, 200));
 
-                // 发送关闭命令 via WebSocket
-                const result = await sendInteraction('close_window', 0, 0);
+                // 发送关闭命令
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'close_window' })
+                });
+                const data = await res.json();
 
-                if (result.status === 'success') {
-                    addLog(`✅ ${result.message || '窗口已关闭'}`);
+                if (data.status === 'success') {
+                    addLog(`✅ ${data.message}`);
                 } else {
-                    addLog('操作结果: ' + (result.message || '未知状态'));
+                    addLog('操作结果: ' + (data.message || '未知状态'));
                 }
 
                 // 关闭成功后，自动解锁恢复自动跟随模式
@@ -719,33 +650,24 @@
             const lockBtn = document.getElementById('lockBtn');
             const select = document.getElementById('windowSelect');
 
-            // Prefer WebSocket for lower latency
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'unlock' }));
-                // UI update will be handled in ws.onmessage
+            try {
+                const res = await fetch(`${API}/lock`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: '' })
+                });
+                const data = await res.json();
+                addLog(data.message || '已恢复自动跟随');
+
+                // 更新 UI
+                lockBtn.textContent = '🔒 锁定';
+                lockBtn.className = '';
                 select.value = '';
                 document.getElementById('currentWindow').textContent = '自动跟随中...';
-            } else {
-                // Fallback to HTTP
-                try {
-                    const res = await fetch(`${API}/lock`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ title: '' })
-                    });
-                    const data = await res.json();
-                    addLog(data.message || '已恢复自动跟随');
 
-                    // 更新 UI
-                    lockBtn.textContent = '🔒 锁定';
-                    lockBtn.className = '';
-                    select.value = '';
-                    document.getElementById('currentWindow').textContent = '自动跟随中...';
-
-                    await refreshWindows();
-                } catch (e) {
-                    addLog('解锁失败: ' + e, true);
-                }
+                await refreshWindows();
+            } catch (e) {
+                addLog('解锁失败: ' + e, true);
             }
         }
 
@@ -814,34 +736,27 @@
                 await unlockWindow();
             } else {
                 // 当前未锁定 -> 一键锁定当前正在显示的窗口
-                // Prefer WebSocket for lower latency
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'lock_current' }));
-                    // Response will be handled in ws.onmessage
-                } else {
-                    // Fallback to HTTP
-                    try {
-                        const res = await fetch(`${API}/lock_current`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' }
-                        });
-                        const data = await res.json();
+                try {
+                    const res = await fetch(`${API}/lock_current`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const data = await res.json();
 
-                        if (data.status === 'locked') {
-                            addLog(`✅ ${data.message}`);
-                            lockBtn.textContent = '🔓 解锁';
-                            lockBtn.className = 'danger';
-                            document.getElementById('currentWindow').innerHTML =
-                                `<span class="locked">🔒 ${data.title}</span>`;
-                            document.getElementById('windowSelect').value = data.title;
-                        } else {
-                            addLog('锁定失败: ' + (data.message || '未知错误'), true);
-                        }
-
-                        await refreshWindows();
-                    } catch (e) {
-                        addLog('锁定失败: ' + e, true);
+                    if (data.status === 'locked') {
+                        addLog(`✅ ${data.message}`);
+                        lockBtn.textContent = '🔓 解锁';
+                        lockBtn.className = 'danger';
+                        document.getElementById('currentWindow').innerHTML =
+                            `<span class="locked">🔒 ${data.title}</span>`;
+                        document.getElementById('windowSelect').value = data.title;
+                    } else {
+                        addLog('锁定失败: ' + (data.message || '未知错误'), true);
                     }
+
+                    await refreshWindows();
+                } catch (e) {
+                    addLog('锁定失败: ' + e, true);
                 }
             }
         }
@@ -850,8 +765,8 @@
             const rect = screen.getBoundingClientRect();
 
             // 使用服务端发送的窗口尺寸（这是点击坐标的目标尺寸）
-            const winW = serverWindowWidth || screen.width;
-            const winH = serverWindowHeight || screen.height;
+            const winW = serverWindowWidth || screen.naturalWidth;
+            const winH = serverWindowHeight || screen.naturalHeight;
 
             // 计算点击在显示图像上的相对位置（0-1范围）
             const relX = (e.clientX - rect.left) / rect.width;
@@ -862,7 +777,17 @@
             const y = Math.round(relY * winH);
 
             addLog(`点击 (${x}, ${y})`);
-            await sendInteraction('click', x, y);
+            try {
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'click', x, y })
+                });
+                const data = await res.json();
+                addLog('已点击');
+            } catch (e) {
+                addLog('点击失败: ' + e, true);
+            }
         };
 
         // ==================== Fullscreen & Adapt ====================
@@ -1010,69 +935,37 @@
             lastInputValue = '';
         }
 
-        /**
-         * Send interaction to server via WebSocket (preferred) or HTTP fallback.
-         * @param {string} action - Action type
-         * @param {number} x - X coordinate (for click/scroll actions)
-         * @param {number} y - Y coordinate (for click/scroll actions)
-         * @param {string} text - Text content (for 'type' action)
-         * @param {string} key - Key name (for 'key' or 'hotkey' actions)
-         */
-        async function sendInteraction(action, x = 0, y = 0, text = '', key = '') {
-            const payload = { action, x, y };
-            if (text) payload.text = text;
-            if (key) payload.key = key;
-
-            // Prefer WebSocket for lower latency
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                try {
-                    ws.send(JSON.stringify(payload));
-                    // Log success for debugging
-                    if (action === 'type') {
-                        console.log(`[WS] Typed: "${text}"`);
-                    } else if (action === 'key') {
-                        console.log(`[WS] Key: ${key}`);
-                    }
-                    return { status: 'sent_via_ws' };
-                } catch (e) {
-                    console.warn('[WS] Send failed, falling back to HTTP:', e);
-                }
-            }
-
-            // Fallback to HTTP
-            try {
-                const res = await fetch(`${API}/interact`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await res.json();
-                return data;
-            } catch (e) {
-                addLog(`交互失败: ${e}`, true);
-                console.error('[sendInteraction] Error:', e);
-                return { status: 'error', message: e.toString() };
-            }
-        }
-
-        // Initialize throttled version for high-frequency events (50ms = 20 calls/sec max)
-        throttledSendInteraction = throttle(sendInteraction, 50);
-
         async function openApp() {
             const appName = document.getElementById('appInput').value;
             if (!appName) return;
             addLog(`打开软件: "${appName}"`);
-            await sendInteraction('open_app', 0, 0, appName);
-            addLog('已发送启动命令');
-            document.getElementById('appInput').value = '';
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'open_app', text: appName, x: 0, y: 0 })
+                });
+                addLog('已发送启动命令');
+                document.getElementById('appInput').value = '';
+            } catch (e) {
+                addLog('命令失败: ' + e, true);
+            }
         }
 
         async function sendHotkey() {
             const hotkey = document.getElementById('hotkeyInput').value;
             if (!hotkey) return;
             addLog(`快捷键: ${hotkey}`);
-            await sendInteraction('hotkey', 0, 0, '', hotkey);
-            addLog('已发送');
+            try {
+                const res = await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'hotkey', key: hotkey, x: 0, y: 0 })
+                });
+                addLog('已发送');
+            } catch (e) {
+                addLog('快捷键失败: ' + e, true);
+            }
         }
 
         async function scrollUp() {
@@ -1116,7 +1009,11 @@
         }
 
         async function sendKey(key) {
-            await sendInteraction('key', 0, 0, '', key);
+            await fetch(`${API}/interact`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'key', key: key })
+            });
             resetModifiers();
         }
 
@@ -1127,7 +1024,11 @@
             // Remove duplicates
             const uniqueKeys = [...new Set(finalKeys)];
 
-            await sendInteraction('hotkey', 0, 0, '', uniqueKeys.join('+'));
+            await fetch(`${API}/interact`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'hotkey', key: uniqueKeys.join('+') })
+            });
             addLog(`发送: ${uniqueKeys.join('+')}`);
             resetModifiers();
         }
@@ -1186,12 +1087,8 @@
         // Transform screen coords to server window coords
         function getWindowCoords(clientX, clientY) {
             const rect = screen.getBoundingClientRect();
-            // Canvas uses .width/.height for buffer size (set to match server resolution)
-            // serverWindowWidth/Height are sent by server and updated with each frame
-            const sourceW = serverWindowWidth || screen.width || rect.width;
-            const sourceH = serverWindowHeight || screen.height || rect.height;
-            const scaleX = sourceW / rect.width;
-            const scaleY = sourceH / rect.height;
+            const scaleX = screen.naturalWidth / rect.width;
+            const scaleY = screen.naturalHeight / rect.height;
             const x = Math.round((clientX - rect.left) * scaleX);
             const y = Math.round((clientY - rect.top) * scaleY);
             return { x, y };
@@ -1222,9 +1119,13 @@
                 if (navigator.vibrate) navigator.vibrate([30, 50, 30]); // Distinct vibration
                 addLog('🖱️ 进入拖拽模式 (松开结束)');
 
-                // Send Mouse Down via WebSocket
+                // Send Mouse Down
                 const coords = getWindowCoords(touchStartX, touchStartY);
-                await sendInteraction('mousedown', coords.x, coords.y);
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mousedown', x: coords.x, y: coords.y })
+                });
 
             }, LONG_PRESS_MS);
 
@@ -1260,9 +1161,15 @@
                 }
 
                 if (isDragging) {
-                    // DRAG MODE: Send throttled Mouse Move events via WebSocket
+                    // DRAG MODE: Send Mouse Move events
+                    // Rate limit? Browser touchmove is high freq.
                     const coords = getWindowCoords(currentX, currentY);
-                    throttledSendInteraction('mousemove', coords.x, coords.y);
+                    // We simply fire and forget, server handles stream
+                    fetch(`${API}/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'mousemove', x: coords.x, y: coords.y })
+                    });
                     return;
                 }
 
@@ -1277,7 +1184,7 @@
                         const scrollScale = 3;
                         const scrollVal = Math.round(stepY * scrollScale);
                         if (scrollVal !== 0) {
-                            throttledSendScroll(scrollVal, currentX, currentY);
+                            sendScrollAtPosition(scrollVal, currentX, currentY);
                             touchStartY = currentY;
                             touchStartX = currentX;
                         }
@@ -1404,47 +1311,27 @@
         // Helper: Scroll at specific screen position (for touch accuracy)
         async function sendScrollAtPosition(amount, screenX, screenY) {
             const rect = screen.getBoundingClientRect();
-            // Canvas uses .width/.height for buffer size
-            const sourceW = serverWindowWidth || screen.width || rect.width;
-            const sourceH = serverWindowHeight || screen.height || rect.height;
-            const scaleX = sourceW / rect.width;
-            const scaleY = sourceH / rect.height;
+            const scaleX = screen.naturalWidth / rect.width;
+            const scaleY = screen.naturalHeight / rect.height;
+            // Convert screen coordinates to window coordinates
+            // Note: clientX/Y are relative to viewport. rect is relative to viewport.
+            // touchStartX is clientX.
 
             const x = Math.round((screenX - rect.left) * scaleX);
             const y = Math.round((screenY - rect.top) * scaleY);
 
-            // Use WebSocket for lower latency
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ action: 'scroll', x: Math.max(0, x), y: Math.max(0, y), text: String(amount) }));
-            } else {
-                try {
-                    await fetch(`${API}/interact`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'scroll', x: Math.max(0, x), y: Math.max(0, y), text: String(amount) })
-                    });
-                } catch (e) {
-                    // console.log('Scroll error', e);
-                }
-            }
-        }
+            // Limit x, y to image bounds? No, server handles it?
+            // Just ensure >= 0
 
-        // Throttled scroll wrapper - accumulates scroll amounts between calls
-        let pendingScrollAmount = 0;
-        let pendingScrollX = 0;
-        let pendingScrollY = 0;
-        const throttledScroll = throttle((x, y, amount) => {
-            if (pendingScrollAmount !== 0) {
-                sendScrollAtPosition(pendingScrollAmount, pendingScrollX, pendingScrollY);
-                pendingScrollAmount = 0;
+            try {
+                await fetch(`${API}/interact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'scroll', x: Math.max(0, x), y: Math.max(0, y), text: String(amount) })
+                });
+            } catch (e) {
+                // console.log('Scroll error', e);
             }
-        }, 50);
-
-        function throttledSendScroll(amount, screenX, screenY) {
-            pendingScrollAmount += amount;
-            pendingScrollX = screenX;
-            pendingScrollY = screenY;
-            throttledScroll(screenX, screenY, amount);
         }
 
         // Legacy scroll at center (for buttons)
@@ -1497,7 +1384,22 @@
         // Auto-connect
         setTimeout(connect, 500);
 
+        // ==================== Header Pull-down for Keyboard ====================
+        const header = document.querySelector('header');
+        let headerTouchStartY = 0;
 
+        header.addEventListener('touchstart', (e) => {
+            headerTouchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        header.addEventListener('touchend', (e) => {
+            const touchEndY = e.changedTouches[0].clientY;
+            // Threshold for pull-down: 50px
+            if (touchEndY - headerTouchStartY > 50) {
+                addLog('⌨️ 下拉唤醒键盘');
+                toggleKeyboard();
+            }
+        });
 
         // ==================== Pie Control Logic (Float Version) ====================
         // ==================== Optimized Clipboard Logic ====================
@@ -1647,8 +1549,8 @@
         let floatElStartX = 0;
         let floatElStartY = 0;
 
-        const PIE_INNER_RADIUS = 65;   // 一级菜单半径
-        const PIE_OUTER_RADIUS = 105;  // 二级菜单外环距离（紧凑）
+        const PIE_INNER_RADIUS = 50;   // 紧凑的内环
+        const PIE_OUTER_RADIUS = 100;  // 外环距离
 
         // 半圆边界角度
         function getHalfCircleBounds() {
@@ -1663,18 +1565,17 @@
             pieSectors.innerHTML = '';
 
             const bounds = getHalfCircleBounds();
-            // 一级菜单：使用完整180度，最大化间距防止误触
-            const startAngle = bounds.min;
-            const endAngle = bounds.max;
+            // 内环使用较小范围，留出边距
+            const padding = 20;  // 边缘留白
+            const startAngle = bounds.min + padding;
+            const endAngle = bounds.max - padding;
 
             const totalAngle = endAngle - startAngle;
-            // 使用 (count + 1) 来确保首尾都有适当边距
-            const categoryStepAngle = totalAngle / (pieCategories.length + 1);
+            const categoryStepAngle = totalAngle / (pieCategories.length - 1);
 
             // Create Inner Ring (Categories)
             pieCategories.forEach((cat, index) => {
-                // 从 startAngle + step 开始，避免边缘
-                const angle = startAngle + ((index + 1) * categoryStepAngle);
+                const angle = startAngle + (index * categoryStepAngle);
                 const radian = angle * (Math.PI / 180);
 
                 const x = Math.cos(radian) * PIE_INNER_RADIUS;
@@ -1684,11 +1585,11 @@
                 el.className = 'pie-category';
                 el.textContent = cat.label;
                 el.style.cssText = `
-                    position: absolute; width: 40px; height: 40px;
-                    left: ${x - 20}px; top: ${y - 20}px;
+                    position: absolute; width: 36px; height: 36px;
+                    left: ${x - 18}px; top: ${y - 18}px;
                     background: rgba(40, 50, 70, 0.9); border: 2px solid #556;
                     border-radius: 50%; display: flex; align-items: center; justify-content: center;
-                    font-size: 1rem; color: #fff; transition: all 0.15s;
+                    font-size: 0.9rem; color: #fff; transition: all 0.15s;
                     z-index: 10;
                 `;
                 el.dataset.catIndex = index;
@@ -1711,13 +1612,13 @@
             activeCategory = catIndex;
 
             const bounds = getHalfCircleBounds();
-            // 匹配一级菜单的角度计算：用完整180度，count+1分割
-            const innerStart = bounds.min;
-            const innerEnd = bounds.max;
-            const innerStep = (innerEnd - innerStart) / (pieCategories.length + 1);
+            const innerPadding = 20;
+            const innerStart = bounds.min + innerPadding;
+            const innerEnd = bounds.max - innerPadding;
+            const innerStep = (innerEnd - innerStart) / (pieCategories.length - 1);
 
-            // 选中分类的中心角度（匹配createPieSectors的计算方式）
-            const categoryAngle = innerStart + ((catIndex + 1) * innerStep);
+            // 选中分类的中心角度
+            const categoryAngle = innerStart + (catIndex * innerStep);
 
             // 外环扇形范围：以分类角度为中心，向两侧展开
             const itemCount = cat.items.length;
@@ -1880,35 +1781,38 @@
                 let c = checkAngle % 360;
                 if (c < 0) c += 360;
 
-                if (distance < 30) {
+                if (distance < 25) {
                     // Dead zone at center
                     activeSectorIndex = -1;
                     highlightCategory(-1);
-                } else if (distance < 85) {
-                    // INNER RING: Category Selection
+                } else if (distance < 75) {
+                    // INNER RING: Category Selection (50px radius)
                     activeSectorIndex = -1; // Clear outer selection
 
                     let bestDiff = 999;
                     let bestCatIdx = -1;
 
                     pieCategories.forEach((cat, index) => {
-                        // 匹配 createPieSectors 的角度计算：(index + 1) * step
-                        const targetAngle = pieConfig.startAngle + ((index + 1) * pieConfig.categoryStepAngle);
+                        const targetAngle = pieConfig.startAngle + (index * pieConfig.categoryStepAngle);
                         let t = targetAngle % 360;
                         if (t < 0) t += 360;
 
                         let diff = Math.abs(c - t);
                         if (diff > 180) diff = 360 - diff;
 
-                        // 移除 sticky bias，让切换更灵敏
+                        // Sticky bias for current category
+                        if (index === activeCategory) {
+                            diff *= 0.5;
+                        }
+
                         if (diff < bestDiff) {
                             bestDiff = diff;
                             bestCatIdx = index;
                         }
                     });
 
-                    if (bestDiff < 40 && bestCatIdx !== activeCategory) {
-                        // Expand new category (降低阈值，更容易切换)
+                    if (bestDiff < 50 && bestCatIdx !== activeCategory) {
+                        // Expand new category
                         outerConfig = expandCategory(bestCatIdx);
                         if (navigator.vibrate) navigator.vibrate(15);
                     }
@@ -2039,253 +1943,6 @@
         document.addEventListener('touchend', (e) => {
             // Handled by handleFloatEnd mostly, but fallback just in case
         });
-    </script>
-    <script>
-        // ... (existing code assumption) ...
-
-
-        // ==================== Speech Recognition Integration ====================
-
-        let recognizer = null;
-        const voiceBtn = document.getElementById('voiceBtn');
-
-        async function toggleVoice() {
-            // 1. 检查并加载模块
-            if (typeof SpeechRecognizer === 'undefined') {
-                voiceBtn.textContent = '⏳ 加载中...';
-                try {
-                    await import('/speech/speech-recognizer.js');
-                } catch (e) {
-                    addLog('❌ 加载语音模块失败', true);
-                    voiceBtn.textContent = '🎤 语音';
-                    return;
-                }
-            }
-
-            // 2. 检查浏览器支持
-            if (!SpeechRecognizer.isSupported()) {
-                addLog('❌ 浏览器不支持语音识别', true);
-                voiceBtn.textContent = '🎤 语音';
-                return;
-            }
-
-            // 3. 初始化识别器
-            if (!recognizer) {
-                recognizer = new SpeechRecognizer({
-                    lang: 'zh-CN',
-                    onStart: () => {
-                        voiceBtn.style.background = '#e94560';
-                        voiceBtn.textContent = '🛑 停止';
-                        addLog('🎤 开始语音识别...');
-                        if (navigator.vibrate) navigator.vibrate(50);
-                    },
-                    onEnd: () => {
-                        voiceBtn.style.background = '';
-                        voiceBtn.textContent = '🎤 语音';
-                    },
-                    onResult: (text, isFinal) => {
-                        if (isFinal && text) {
-                            addLog(`🎤 识别: ${text}`);
-                            sendInteraction('type', 0, 0, text);
-                        }
-                    },
-                    onError: (err) => {
-                        addLog(`❌ 语音错误: ${err}`, true);
-                        voiceBtn.style.background = '';
-                        voiceBtn.textContent = '🎤 语音';
-                    }
-                });
-            }
-
-            // 4. 切换状态
-            if (recognizer.isListening) {
-                recognizer.stop();
-            } else {
-                recognizer.start();
-            }
-        }
-
-        // --- RESTORED ROBUST MOBILE LOGIC ---
-
-        // Mobile Keyboard Logic
-        // Triggered by clicking "Ghost Shell" title
-
-        let isComposing = false;
-        const mobileInput = document.getElementById('mobileKeyboardInput');
-
-        if (mobileInput) {
-            mobileInput.addEventListener('compositionstart', () => {
-                isComposing = true;
-                addLog('📝 正在输入...');
-            });
-
-            mobileInput.addEventListener('compositionend', (e) => {
-                isComposing = false;
-                // Defer checking value to ensure standard 'input' event passes or value updates
-                setTimeout(() => {
-                    handleMobileInput(e.data || mobileInput.value);
-                }, 50);
-            });
-
-            // Standard input (for non-IME or when composition is done but input fires separately)
-            mobileInput.addEventListener('input', (e) => {
-                if (isComposing) return;
-
-                // If it's a simple character or paste that didn't trigger composition
-                setTimeout(() => {
-                    handleMobileInput(mobileInput.value);
-                }, 10);
-            });
-
-            // Shared handler to deduplicate and send
-            function handleMobileInput(text) {
-                if (!text) return;
-
-                // Sanitize: Remove zero-width chars, control chars, and known "garbage"
-                let cleanText = text.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200b\uFEFF\uFFFD]/g, '');
-
-                if (!cleanText) return;
-
-                addLog(`📤 发送: [${cleanText}]`);
-                sendInteraction('type', 0, 0, cleanText);
-                mobileInput.value = ''; // Always clear after sending
-            }
-
-            // Handle specific control keys
-            mobileInput.addEventListener('keydown', (e) => {
-                if (isComposing) return;
-
-                if (e.key === 'Enter') {
-                    sendInteraction('key', 0, 0, '', 'enter');
-                    e.preventDefault();
-                } else if (e.key === 'Backspace') {
-                    sendInteraction('key', 0, 0, '', 'backspace');
-                }
-            });
-        }
-
-        // Global function to hide the mobile input
-        function hideMobileInput() {
-            if (mobileInput) {
-                mobileInput.style.left = '-9999px';
-                mobileInput.style.width = '1px';
-                mobileInput.style.height = '1px';
-                mobileInput.style.pointerEvents = 'none';
-                mobileInput.blur();  // Force blur
-            }
-        }
-
-        // Track if keyboard is intentionally open
-        let mobileKeyboardOpen = false;
-        let keyboardHideTimer = null;
-
-        function toggleMobileKeyboard() {
-            if (mobileInput) {
-                // If already open, close it
-                if (mobileKeyboardOpen) {
-                    hideMobileInput();
-                    mobileKeyboardOpen = false;
-                    addLog('⌨️ 键盘已关闭');
-                    return;
-                }
-
-                // Show and focus the input
-                mobileInput.style.position = 'fixed';
-                mobileInput.style.left = '0';
-                mobileInput.style.top = '50%';
-                mobileInput.style.width = '100%';
-                mobileInput.style.height = '50px';
-                mobileInput.style.opacity = '0.01';
-                mobileInput.style.zIndex = '10000';
-                mobileInput.style.fontSize = '16px';
-                mobileInput.style.pointerEvents = 'auto';
-                mobileInput.removeAttribute('readonly');
-                mobileInput.focus();
-                mobileInput.click();
-
-                mobileKeyboardOpen = true;
-                addLog('⌨️ 调起键盘 - 请输入');
-
-                // Clear any existing timer
-                if (keyboardHideTimer) clearTimeout(keyboardHideTimer);
-
-                // Auto-hide after 30 seconds
-                keyboardHideTimer = setTimeout(() => {
-                    if (mobileKeyboardOpen) {
-                        hideMobileInput();
-                        mobileKeyboardOpen = false;
-                    }
-                }, 30000);
-            } else {
-                addLog('❌ 未找到键盘输入框', true);
-            }
-        }
-
-        // Hide input when it loses focus (keyboard dismissed)
-        if (mobileInput) {
-            mobileInput.addEventListener('blur', () => {
-                setTimeout(() => {
-                    hideMobileInput();
-                    mobileKeyboardOpen = false;
-                }, 100);
-            });
-        }
-
-        // Detect keyboard dismiss via viewport resize
-        // When mobile keyboard appears/disappears, the viewport height changes
-        let lastViewportHeight = window.innerHeight;
-        window.addEventListener('resize', () => {
-            const currentHeight = window.innerHeight;
-            // If viewport got LARGER, keyboard was likely dismissed
-            if (currentHeight > lastViewportHeight + 50 && mobileKeyboardOpen) {
-                console.log('[Keyboard] Detected dismiss via viewport resize');
-                hideMobileInput();
-                mobileKeyboardOpen = false;
-            }
-            lastViewportHeight = currentHeight;
-        });
-
-        // When user touches the screen canvas, hide keyboard if open
-        screen.addEventListener('touchstart', (e) => {
-            if (mobileKeyboardOpen && e.target === screen) {
-                // User touched the screen, not the input - dismiss keyboard
-                hideMobileInput();
-                mobileKeyboardOpen = false;
-            }
-        }, { passive: true, capture: true });
-
-        window.toggleMobileKeyboard = toggleMobileKeyboard;
-        window.toggleKeyboard = toggleMobileKeyboard;
-
-
-
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const title = document.querySelector('header h1');
-            if (title) {
-                title.style.cursor = 'pointer';
-
-                // 单击弹出键盘
-                title.onclick = toggleMobileKeyboard;
-
-                // 双击刷新页面
-                title.ondblclick = (e) => {
-                    e.preventDefault();
-                    addLog('🔄 刷新页面...');
-                    location.reload();
-                };
-            }
-
-            // 自动连接 WebSocket
-            setTimeout(() => {
-                addLog('🔌 自动连接中...');
-                connect();
-            }, 500);
-        });
-
-        // Global keydown for PC/Hardware keyboard
-        // Global keydown for PC/Hardware keyboard
-
     </script>
 </body>
 

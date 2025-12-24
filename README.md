@@ -29,14 +29,15 @@
 # HTTP 模式 (端口 8000)
 python ghost_server.py
 
-# HTTPS 模式 (端口 8443，支持手机语音)
+# HTTPS 模式 (端口 8444，支持手机语音)
 python ghost_server.py --https
 ```
 
 ## 访问
 
 - HTTP: `http://电脑IP:8000`
-- HTTPS: `https://电脑IP:8443`
+- HTTPS: `https://电脑IP:8444`
+- 语音识别: `https://电脑IP:8444/speech/`
 
 ## 多显示器兼容性
 
