@@ -34,7 +34,7 @@ Start-Process "http://localhost:8000?v=$timestamp"
 Write-Host ""
 Write-Host "Ghost Shell v2.1 is ready!" -ForegroundColor Green
 Write-Host "- PC (HTTP):      http://localhost:8000" -ForegroundColor Gray
-Write-Host "- Mobile (HTTPS): https://192.168.31.141:8443 (Accept cert)" -ForegroundColor Gray
+Write-Host "- Mobile (HTTPS): https://192.168.31.141:8444 (Accept cert)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Features:" -ForegroundColor Cyan
 Write-Host "  - Multi-monitor support" -ForegroundColor Gray

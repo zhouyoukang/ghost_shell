@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎤 语音识别测试</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            min-height: 100vh;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 15px;
+        }
+
+        h1 {
+            font-size: 22px;
+            margin-bottom: 20px;
+        }
+
+        .info {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .info span {
+            display: inline-block;
+            padding: 3px 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            margin: 2px;
+        }
+
+        .info .ok {
+            color: #4CAF50;
+        }
+
+        .info .error {
+            color: #F44336;
+        }
+
+        .mic-btn {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(145deg, #e94560, #c23050);
+            color: white;
+            font-size: 50px;
+            cursor: pointer;
+            box-shadow: 0 10px 40px rgba(233, 69, 96, 0.4);
+            transition: all 0.3s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .mic-btn:active {
+            transform: scale(0.95);
+        }
+
+        .mic-btn.listening {
+            animation: pulse 1.5s infinite;
+            background: linear-gradient(145deg, #4caf50, #388e3c);
+            box-shadow: 0 10px 40px rgba(76, 175, 80, 0.4);
+        }
+
+        .mic-btn.disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.08);
+            }
+        }
+
+        .status {
+            margin-top: 20px;
+            font-size: 16px;
+            color: #888;
+        }
+
+        .status.listening {
+            color: #4caf50;
+        }
+
+        .status.error {
+            color: #f44336;
+        }
+
+        .result {
+            margin-top: 25px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 450px;
+            min-height: 60px;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        .result:empty::before {
+            content: '识别结果将显示在这里...';
+            color: #555;
+        }
+
+        .logs {
+            margin-top: 20px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            width: 100%;
+            max-width: 450px;
+            max-height: 180px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 11px;
+        }
+
+        .log {
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .log-info {
+            color: #2196F3;
+        }
+
+        .log-success {
+            color: #4CAF50;
+        }
+
+        .log-error {
+            color: #F44336;
+        }
+
+        .log-warn {
+            color: #FF9800;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🎤 语音识别测试</h1>
+
+    <div class="info" id="info">检测中...</div>
+
+    <button class="mic-btn" id="mic">🎤</button>
+    <div class="status" id="status">点击开始</div>
+    <div class="result" id="result"></div>
+    <div class="logs" id="logs"></div>
+
+    <script type="module">
+        import { SpeechRecognizer } from './speech-recognizer.js';
+
+        const micBtn = document.getElementById('mic');
+        const statusEl = document.getElementById('status');
+        const resultEl = document.getElementById('result');
+        const logsEl = document.getElementById('logs');
+        const infoEl = document.getElementById('info');
+
+        function log(type, msg) {
+            const div = document.createElement('div');
+            div.className = `log log-${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logsEl.appendChild(div);
+            logsEl.scrollTop = logsEl.scrollHeight;
+            console.log(`[${type}]`, msg);
+        }
+
+        // 环境检测
+        function detectEnv() {
+            const isHTTPS = location.protocol === 'https:';
+            const isAndroid = SpeechRecognizer.isAndroid();
+            const isSupported = SpeechRecognizer.isSupported();
+
+            let html = '';
+            html += `<span class="${isHTTPS ? 'ok' : 'error'}">${isHTTPS ? '✓' : '✗'} HTTPS</span>`;
+            html += `<span>${isAndroid ? '📱 Android' : '💻 Desktop'}</span>`;
+            html += `<span class="${isSupported ? 'ok' : 'error'}">${isSupported ? '✓' : '✗'} 语音API</span>`;
+
+            infoEl.innerHTML = html;
+
+            if (!isSupported) {
+                micBtn.className = 'mic-btn disabled';
+                statusEl.textContent = '浏览器不支持语音识别';
+                statusEl.className = 'status error';
+                log('error', '浏览器不支持 Web Speech API');
+                return false;
+            }
+
+            if (!isHTTPS && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                log('warn', '非 HTTPS 环境，麦克风可能无法访问');
+            }
+
+            log('info', `环境检测完成: ${isAndroid ? 'Android' : 'Desktop'}, ${isHTTPS ? 'HTTPS' : 'HTTP'}`);
+            return true;
+        }
+
+        let recognizer = null;
+
+        function initRecognizer() {
+            if (recognizer) return recognizer;
+
+            recognizer = new SpeechRecognizer({
+                lang: 'zh-CN',
+                onStart: () => {
+                    micBtn.className = 'mic-btn listening';
+                    micBtn.textContent = '🔴';
+                    statusEl.textContent = '正在聆听...';
+                    statusEl.className = 'status listening';
+                    log('info', '开始识别');
+                    if (navigator.vibrate) navigator.vibrate(30);
+                },
+                onEnd: () => {
+                    micBtn.className = 'mic-btn';
+                    micBtn.textContent = '🎤';
+                    statusEl.textContent = '点击开始';
+                    statusEl.className = 'status';
+                    log('info', '识别结束');
+                },
+                onResult: (text, isFinal) => {
+                    resultEl.textContent = text;
+                    if (isFinal) {
+                        resultEl.innerHTML = `<strong>"${text}"</strong>`;
+                        if (navigator.vibrate) navigator.vibrate(50);
+                    }
+                    log('success', `${isFinal ? '✓ 最终' : '... 临时'}: ${text}`);
+                },
+                onError: (error) => {
+                    statusEl.textContent = `错误: ${error}`;
+                    statusEl.className = 'status error';
+                    log('error', error);
+
+                    // Android 特定错误处理
+                    if (error === 'not-allowed') {
+                        log('warn', '请在浏览器设置中允许麦克风权限');
+                    }
+                }
+            });
+
+            return recognizer;
+        }
+
+        micBtn.addEventListener('click', () => {
+            if (micBtn.classList.contains('disabled')) return;
+
+            const rec = initRecognizer();
+
+            if (rec.isListening) {
+                rec.stop();
+            } else {
+                resultEl.textContent = '';
+                rec.start();
+            }
+        });
+
+        // 初始化
+        if (detectEnv()) {
+            log('info', '页面已加载，点击麦克风开始');
+        }
+    </script>
+</body>
+
+</html>

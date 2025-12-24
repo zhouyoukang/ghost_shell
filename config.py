@@ -15,7 +15,7 @@ class Config:
     # Server
     HOST: str = "0.0.0.0"
     HTTP_PORT: int = 8000
-    HTTPS_PORT: int = 8443
+    HTTPS_PORT: int = 8444
     
     # Capture
     CAPTURE_MODE: str = "full"

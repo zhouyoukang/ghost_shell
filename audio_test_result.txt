@@ -1,0 +1,27 @@
+=== WASAPI Audio Devices ===
+
+WASAPI Host API Index: 2
+Default Output Device Index: 30
+Default Input Device Index: 41
+
+Default Output: 鎵０鍣?(Realtek(R) Audio)
+  - Sample Rate: 48000.0
+  - Channels: 2
+  - Is Loopback: False
+
+=== All Loopback Devices ===
+
+[43] 鎵０鍣?(Realtek(R) Audio) [Loopback]
+      Channels: 2, Rate: 48000.0
+[44] Line 2 (Virtual Audio Cable) [Loopback]
+      Channels: 2, Rate: 48000.0
+[45] S27Q6-Q27G8 (NVIDIA High Definition Audio) [Loopback]
+      Channels: 2, Rate: 48000.0
+[46] Line 1 (Virtual Audio Cable) [Loopback]
+      Channels: 2, Rate: 48000.0
+[47] Line 3 (Virtual Audio Cable) [Loopback]
+      Channels: 2, Rate: 48000.0
+[48] Speakers (NVIDIA Broadcast) [Loopback]
+      Channels: 2, Rate: 48000.0
+[49] Realtek Digital Output (Realtek(R) Audio) [Loopback]
+      Channels: 2, Rate: 48000.0
