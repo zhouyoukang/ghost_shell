@@ -2,9 +2,25 @@
 
 通过网页远程控制电脑窗口，支持多显示器和不同 DPI 缩放。
 
+## 🔄 版本说明
+
+这是 **WebSocket 版本** (稳定版，推荐)。
+
+如需低延迟 WebRTC 版本，请切换到 [`webrtc` 分支](https://github.com/zhouyoukang/ghost_shell/tree/webrtc)。
+
+| 特性 | WebSocket 版 (本分支) | WebRTC 版 (webrtc分支) |
+|:--|:--|:--|
+| **延迟** | 中等 (~100-200ms) | 极低 (~30-50ms) |
+| **帧率** | 30 FPS | 60 FPS |
+| **公网穿透** | ✅ 简单 (FRP直接转发) | ❌ 复杂 (需TURN服务器) |
+| **稳定性** | ✅ 高 | ⚠️ 中等 |
+| **适用场景** | 公网/FRP/局域网 | 仅局域网 |
+
+---
+
 ## 功能
 
-- 🖥️ 窗口实时截屏串流 (WebSocket, 2 FPS)
+- 🖥️ 窗口实时截屏串流 (WebSocket, 30 FPS)
 - 🖱️ 远程点击/滚动
 - ⌨️ 文本输入/快捷键
 - 🎤 语音输入 (需 HTTPS)
@@ -21,7 +37,6 @@
 | `ghost_client.html` | 网页控制界面 |
 | `start_ghost_shell.ps1` | Windows 快捷启动脚本 |
 | `config.py` | 配置文件 |
-| `server.pem` | HTTPS 自签名证书 |
 
 ## 启动
 
@@ -63,4 +78,3 @@ pip install fastapi uvicorn pyautogui pygetwindow pillow pywin32 numpy
 
 - UWP 应用（设置、商店）需要窗口在前台
 - 某些 GPU 渲染应用可能无法后台截图
-
