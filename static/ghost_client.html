@@ -439,38 +439,31 @@
 
                     const now = audioContext.currentTime;
 
-                    // Smart Scheduling & Latency Control
+                    // === WAN-Optimized Audio Sync ===
+                    // If we're behind, just start from "now + small buffer"
                     if (audioNextTime < now) {
-                        // Stable Performance Target: 0.12s (120ms)
-                        // Balance between responsiveness and stability
-                        audioNextTime = now + 0.12;
+                        audioNextTime = now + 0.08; // 80ms buffer (minimal)
                     }
 
-                    // Check Latency
                     const latency = audioNextTime - now;
 
-                    // 1. Too much Delay? (>0.2s) -> Speed up slightly to catch up
-                    if (latency > 0.2) {
-                        // Play 5% faster to drain buffer
-                        source.playbackRate.value = 1.05;
-                    }
-                    // 2. Huge Delay? (>0.8s) -> Jump (Seek)
-                    else if (latency > 0.8) {
-                        audioNextTime = now + 0.12; // Reset to head
-                        console.log("Audio skipped forward to sync.");
-                    }
-                    // 3. Normal
-                    else {
-                        source.playbackRate.value = 1.0;
+                    // AGGRESSIVE DROP: If buffer > 300ms, RESET immediately
+                    // This prevents "piling up" on slow WAN connections
+                    if (latency > 0.3) {
+                        // Drop this packet, reset timeline
+                        audioNextTime = now + 0.08;
+                        console.log(`[Audio] Dropped stale packet (latency: ${(latency * 1000).toFixed(0)}ms)`);
+                        return; // Don't play this one
                     }
 
+                    // Normal playback
+                    source.playbackRate.value = 1.0;
                     source.start(audioNextTime);
-                    // Calculate duration based on playback rate
-                    audioNextTime += (buffer.duration / source.playbackRate.value);
+                    audioNextTime += buffer.duration;
 
-                    // Add to queue for reference (optional)
+                    // Memory cleanup (keep last 20 refs max)
                     audioBuffer.push(source);
-                    if (audioBuffer.length > 50) audioBuffer.shift(); // Keep memory clean
+                    if (audioBuffer.length > 20) audioBuffer.shift();
                 };
 
                 audioWs.onerror = (e) => {
