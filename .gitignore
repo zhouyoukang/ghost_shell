@@ -1,61 +1,8 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-venv/
-env/
-.venv/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Logs
+ghost_shell.exe
+ghost_shell.exe~
 *.log
-logs/
-
-# Temp files
-*.tmp
-*.temp
-*.bak
-
-# SSL certificates (sensitive)
-*.pem
-*.key
-*.crt
-
-# Screenshots and recordings (can be large)
-screenshots/
-recordings/
-*.webp
-
-# Test outputs
-test_*.png
-test_*.jpg
+*.wav
+__pycache__/
+*.pyc
+legacy/webrtc/__pycache__/
+legacy/python_websocket/__pycache__/
