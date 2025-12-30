@@ -167,9 +167,10 @@ func runAudioLoop() error {
 
 	// WASAPI Loopback requires Shared Mode
 	// We must use the mix format provided by GetMixFormat
-	// 10ms (100000) - Standard Low Latency for Windows WASAPI.
-	// 30ms caused issues, 0 (default) caused "strange" audio. 10ms is industry standard.
-	var period wca.REFERENCE_TIME = 100000
+	// 100ms (1000000) - High Stability for RDP/Virtual Drivers.
+	// 10ms (v3) caused "noise/underruns". 30ms (v1) was "strange".
+	// RDP audio is not low-latency, so we prioritize buffer health.
+	var period wca.REFERENCE_TIME = 1000000
 
 	// Safety: Recover from panics to avoid killing the whole server
 	defer func() {
