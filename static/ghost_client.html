@@ -447,13 +447,14 @@
 
                     const latency = audioNextTime - now;
 
-                    // AGGRESSIVE DROP: If buffer > 300ms, RESET immediately
-                    // This prevents "piling up" on slow WAN connections
-                    if (latency > 0.3) {
-                        // Drop this packet, reset timeline
+                    // AUDIO PRIORITY: Increased threshold from 300ms to 600ms
+                    // For WAN usage, prefer smooth audio over low latency
+                    // Only drop packets if severely behind (>600ms)
+                    if (latency > 0.6) {
+                        // Too far behind, skip to catch up
                         audioNextTime = now + 0.08;
-                        console.log(`[Audio] Dropped stale packet (latency: ${(latency * 1000).toFixed(0)}ms)`);
-                        return; // Don't play this one
+                        console.log(`[Audio] Reset timeline (latency: ${(latency * 1000).toFixed(0)}ms)`);
+                        // Don't drop this packet, just reset and play it
                     }
 
                     // Normal playback
