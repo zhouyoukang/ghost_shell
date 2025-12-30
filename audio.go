@@ -9,6 +9,8 @@ import (
 	"time"
 	"unsafe"
 
+	"os"
+
 	"github.com/gorilla/websocket"
 	"github.com/moutend/go-wca/pkg/wca"
 )
@@ -165,9 +167,9 @@ func runAudioLoop() error {
 
 	// WASAPI Loopback requires Shared Mode
 	// We must use the mix format provided by GetMixFormat
-	// 30ms (33Hz) - High Performance.
-	// 50ms was too "chunky" causing stutter/slow-feeling.
-	var period wca.REFERENCE_TIME = 300000
+	// 10ms (100000) - Standard Low Latency for Windows WASAPI.
+	// 30ms caused issues, 0 (default) caused "strange" audio. 10ms is industry standard.
+	var period wca.REFERENCE_TIME = 100000
 
 	// Safety: Recover from panics to avoid killing the whole server
 	defer func() {
@@ -200,10 +202,6 @@ func runAudioLoop() error {
 
 	// Target is 48000Hz, 2ch, 16bit (Client requirement)
 	packetCount := 0
-
-	// Auto-Calibration Variables
-	totalFrames := 0
-	startTime := time.Now()
 
 	for {
 		if err := captureClient.GetNextPacketSize(&packetLength); err != nil {
@@ -240,45 +238,43 @@ func runAudioLoop() error {
 			raw := make([]byte, bufferSize)
 			copy(raw, src)
 
-			// --- Auto-Calibration (Detect Real Sample Rate) ---
-			currentFrames := len(raw) / int(waveFormat.NBlockAlign)
-			totalFrames += currentFrames
+			// --- Auto-Calibration (DISABLED due to stability issues in RDP) ---
+			/*
+				currentFrames := len(raw) / int(waveFormat.NBlockAlign)
+				totalFrames += currentFrames
 
-			// Detect every 500ms (0.5s) to catch mismatch FAST
-			if time.Since(startTime) >= 500*time.Millisecond {
-				elapsed := time.Since(startTime).Seconds()
-				measuredRate := int(float64(totalFrames) / elapsed)
+				// Detect every 500ms
+				if time.Since(startTime) >= 500*time.Millisecond {
+					elapsed := time.Since(startTime).Seconds()
+					measuredRate := int(float64(totalFrames) / elapsed)
 
-				// Snap to nearest standard rate if diversion is significant (>5%)
-				// Standard: 44100, 48000, 88200, 96000, 176400, 192000
-				standards := []int{44100, 48000, 88200, 96000, 176400, 192000}
-				bestRate := measuredRate
-				minDiff := 1000000
+					// Snap to nearest standard rate...
+					standards := []int{44100, 48000, 88200, 96000, 176400, 192000}
+					bestRate := measuredRate
+					minDiff := 1000000
 
-				for _, r := range standards {
-					diff := int(math.Abs(float64(r - measuredRate)))
-					if diff < minDiff {
-						minDiff = diff
-						bestRate = r
+					for _, r := range standards {
+						diff := int(math.Abs(float64(r - measuredRate)))
+						if diff < minDiff {
+							minDiff = diff
+							bestRate = r
+						}
 					}
-				}
 
-				// Log measurement for diagnosis
-				if packetCount%50 == 0 {
-					log.Printf("[Audio Calib] Config=%d, Measured=%d, Best=%d", sampleRate, measuredRate, bestRate)
-				}
+					if packetCount%50 == 0 {
+						log.Printf("[Audio Calib] Config=%d, Measured=%d, Best=%d", sampleRate, measuredRate, bestRate)
+					}
 
-				// Only update if difference > 2000Hz (Universal Compatibility)
-				// Detects 44.1kHz vs 48kHz mismatch (Diff ~3900Hz)
-				if math.Abs(float64(sampleRate-bestRate)) > 2000 {
-					log.Printf("[Audio] !!! RATE CORRECTION !!! Switch %d -> %d", sampleRate, bestRate)
-					sampleRate = bestRate
-				}
+					// DISABLE DYNAMIC SWITCHING
+					// if math.Abs(float64(sampleRate-bestRate)) > 2000 {
+					// 	log.Printf("[Audio] !!! RATE CORRECTION !!! Switch %d -> %d", sampleRate, bestRate)
+					// 	sampleRate = bestRate
+					// }
 
-				// Reset
-				startTime = time.Now()
-				totalFrames = 0
-			}
+					startTime = time.Now()
+					totalFrames = 0
+				}
+			*/
 			// --------------------------------------------------
 
 			// Process Audio: Convert anything to Stereo Int16 @ 48000Hz
@@ -392,8 +388,12 @@ func runAudioLoop() error {
 				outBytes[i*2+1] = byte(v >> 8)
 			}
 
-			// After processing to 'outBytes' (Int16 Stereo 48k)
-			// Write to debug file (Limit to 10 seconds = 48000*2*2*10 = 1.9MB)
+			// Debug Wav (Disabled for performance)
+			/*
+				if debugWavFile != nil {
+					saveAudioDebug(outBytes)
+				}
+			*/
 
 			select {
 			case audioBroadcast <- outBytes:
@@ -432,4 +432,70 @@ func broadcastAudio() {
 		}
 		audioLock.Unlock()
 	}
+}
+
+// Debugging
+var debugWavFile *os.File
+var debugWavSize int
+
+func saveAudioDebug(data []byte) {
+	if debugWavFile == nil {
+		f, err := os.Create("audio_debug.wav")
+		if err != nil {
+			log.Printf("Failed to create wav: %v", err)
+			return
+		}
+		debugWavFile = f
+		// Write Header Placeholder (44 bytes)
+		header := make([]byte, 44)
+		debugWavFile.Write(header)
+	}
+
+	// Limit to ~5MB (approx 25s)
+	if debugWavSize > 5*1024*1024 {
+		if debugWavFile != nil {
+			updateWavHeader()
+			debugWavFile.Close()
+			debugWavFile = nil
+			log.Println("[Audio] Debug capture finished (limit reached).")
+		}
+		return
+	}
+
+	n, _ := debugWavFile.Write(data)
+	debugWavSize += n
+}
+
+func updateWavHeader() {
+	if debugWavFile == nil {
+		return
+	}
+	// Seek to 0
+	debugWavFile.Seek(0, 0)
+
+	totalDataLen := uint32(debugWavSize)
+	totalFileSize := uint32(36 + debugWavSize)
+
+	// WAV Header (44 bytes)
+	// RIFF + Size + WAVE
+	header := make([]byte, 44)
+	copy(header[0:], []byte("RIFF"))
+	binary.LittleEndian.PutUint32(header[4:], totalFileSize)
+	copy(header[8:], []byte("WAVE"))
+
+	// fmt chunk
+	copy(header[12:], []byte("fmt "))
+	binary.LittleEndian.PutUint32(header[16:], 16)        // Subchunk1Size (16 for PCM)
+	binary.LittleEndian.PutUint16(header[20:], 1)         // AudioFormat (1=PCM)
+	binary.LittleEndian.PutUint16(header[22:], 2)         // NumChannels (Stereo)
+	binary.LittleEndian.PutUint32(header[24:], 48000)     // SampleRate
+	binary.LittleEndian.PutUint32(header[28:], 48000*2*2) // ByteRate
+	binary.LittleEndian.PutUint16(header[32:], 4)         // BlockAlign
+	binary.LittleEndian.PutUint16(header[34:], 16)        // BitsPerSample
+
+	// data chunk
+	copy(header[36:], []byte("data"))
+	binary.LittleEndian.PutUint32(header[40:], totalDataLen)
+
+	debugWavFile.Write(header)
 }
