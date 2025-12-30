@@ -343,6 +343,7 @@
         let windowRefreshTimer = null;  // 窗口列表自动刷新定时器
         let serverWindowWidth = 0;      // 服务端发送的窗口宽度
         let serverWindowHeight = 0;     // 服务端发送的窗口高度
+        let trafficBytes = 0;           // Global traffic counter (video + audio)
         const screen = document.getElementById('screen');
         const status = document.getElementById('status');
         const log = document.getElementById('log');
@@ -417,6 +418,11 @@
                     if (!audioContext || audioContext.state === 'closed') return;
                     if (audioContext.state === 'suspended') audioContext.resume();
 
+                    // Count audio traffic
+                    if (event.data) {
+                        trafficBytes += (event.data.byteLength || event.data.length || 0);
+                    }
+
                     const data = event.data;
                     const pcmData = new Int16Array(data);
                     const samples = pcmData.length; // Mono, so samples = length
@@ -461,9 +467,17 @@
                     source.start(audioNextTime);
                     audioNextTime += buffer.duration;
 
-                    // Memory cleanup (keep last 20 refs max)
+                    // Proper cleanup: Stop and disconnect old sources to prevent overlap
                     audioBuffer.push(source);
-                    if (audioBuffer.length > 20) audioBuffer.shift();
+                    while (audioBuffer.length > 10) {
+                        const oldSource = audioBuffer.shift();
+                        try {
+                            oldSource.stop();
+                            oldSource.disconnect();
+                        } catch (e) {
+                            // Source may already be ended, ignore
+                        }
+                    }
                 };
 
                 audioWs.onerror = (e) => {
@@ -595,8 +609,7 @@
 
                 ws.binaryType = 'arraybuffer'; // 接收二进制帧
 
-                // Traffic Monitor
-                let trafficBytes = 0;
+                // Traffic Monitor (uses global trafficBytes)
                 let lastTrafficTime = Date.now();
                 if (window.trafficTimer) clearInterval(window.trafficTimer);
                 window.trafficTimer = setInterval(() => {
