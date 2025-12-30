@@ -395,6 +395,16 @@ func runAudioLoop() error {
 				}
 			*/
 
+			// === WAN Optimization: Queue Limiting ===
+			// If channel is getting full (>3 packets), drop oldest to prevent accumulation
+			for len(audioBroadcast) > 3 {
+				select {
+				case <-audioBroadcast: // Discard oldest packet
+					log.Println("[Audio] Dropped stale packet (queue full)")
+				default:
+				}
+			}
+
 			select {
 			case audioBroadcast <- outBytes:
 			default:

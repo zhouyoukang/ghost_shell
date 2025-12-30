@@ -651,13 +651,48 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 				if img != nil {
 					buf := encodeJPEG(img)
 
+					// === WAN Optimization: Write Timeout ===
+					// Set 150ms deadline - if network is slow, skip this frame
+					conn.SetWriteDeadline(time.Now().Add(150 * time.Millisecond))
+
 					mu.Lock()
 					err := conn.WriteMessage(websocket.BinaryMessage, buf)
 					mu.Unlock()
 
 					if err != nil {
-						return // Stop loop on error
+						// Check if it's a timeout (network congestion)
+						if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+							// Network congestion - skip frame, slow down
+							mu.Lock()
+							if frameDelay < 200*time.Millisecond {
+								frameDelay = frameDelay * 15 / 10 // +50% delay
+								log.Printf("[WAN] Congestion detected, FPS reduced to %.1f", 1000.0/float64(frameDelay.Milliseconds()))
+							}
+							if jpegQuality > 30 {
+								jpegQuality -= 10 // Reduce quality
+								log.Printf("[WAN] Quality reduced to %d", jpegQuality)
+							}
+							mu.Unlock()
+							// Don't return, continue trying
+						} else {
+							// Real error (disconnect)
+							return
+						}
+					} else {
+						// Success - gradually recover FPS/Quality
+						mu.Lock()
+						if frameDelay > 40*time.Millisecond {
+							frameDelay = frameDelay * 95 / 100 // -5% delay (faster)
+						}
+						if jpegQuality < 60 {
+							jpegQuality++ // Slowly recover quality
+						}
+						mu.Unlock()
 					}
+
+					// Clear deadline for next iteration
+					conn.SetWriteDeadline(time.Time{})
+
 					// Stats Update
 					bytesSent += int64(len(buf))
 					framesSent++
