@@ -98,9 +98,10 @@ func runAudioLoop() error {
 	defer oleCoUninitialize()
 
 	// wca constants/GUIDs
+	// We assume wca package has CLSID_MMDeviceEnumerator etc.
+	// If not, we fix it later.
 	var enumerator *wca.IMMDeviceEnumerator
 	if err := wca.CoCreateInstance(wca.CLSID_MMDeviceEnumerator, 0, wca.CLSCTX_ALL, wca.IID_IMMDeviceEnumerator, &enumerator); err != nil {
-		log.Printf("[Audio] CoCreateInstance Failed: %v", err)
 		return err
 	}
 	defer enumerator.Release()
@@ -108,21 +109,18 @@ func runAudioLoop() error {
 	var device *wca.IMMDevice
 	// Use local constants eRender, eConsole
 	if err := enumerator.GetDefaultAudioEndpoint(eRender, eConsole, &device); err != nil {
-		log.Printf("[Audio] GetDefaultAudioEndpoint Failed: %v", err)
 		return err
 	}
 	defer device.Release()
 
 	var audioClient *wca.IAudioClient
 	if err := device.Activate(wca.IID_IAudioClient, wca.CLSCTX_ALL, nil, &audioClient); err != nil {
-		log.Printf("[Audio] Device Activate Failed: %v", err)
 		return err
 	}
 	defer audioClient.Release()
 
 	var waveFormat *wca.WAVEFORMATEX
 	if err := audioClient.GetMixFormat(&waveFormat); err != nil {
-		log.Printf("[Audio] GetMixFormat Failed: %v", err)
 		return err
 	}
 	defer oleCoTaskMemFree(unsafe.Pointer(waveFormat))
@@ -167,14 +165,15 @@ func runAudioLoop() error {
 
 	// WASAPI Loopback requires Shared Mode
 	// We must use the mix format provided by GetMixFormat
-	// Use 0 for period to let Windows/Driver decide the safe default.
-	// This fixes "Parameter Error" on some devices that reject 300000 (30ms).
-	var period wca.REFERENCE_TIME = 0
+	// 30ms (33Hz) - High Performance.
+	// 50ms was too "chunky" causing stutter/slow-feeling.
+	var period wca.REFERENCE_TIME = 300000
 
 	// Safety: Recover from panics to avoid killing the whole server
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("!!! AUDIO PANIC RECOVERED !!!: %v", r)
+			// Optional: restart loop? For now just log.
 		}
 	}()
 
