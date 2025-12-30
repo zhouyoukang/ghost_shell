@@ -317,9 +317,9 @@ func runAudioLoop() error {
 				}
 			}
 
-			// 2. Resample to 48000Hz (Linear Interpolation)
-			// Python original logic: device_rate != self.sample_rate (48000)
-			const targetRate = 48000
+			// 2. Resample to 16000Hz for WAN bandwidth optimization
+			// 16kHz Mono = 32 KB/s vs 48kHz Stereo = 187 KB/s (83% reduction)
+			const targetRate = 16000
 			if sampleRate != targetRate {
 				ratio := float64(sampleRate) / float64(targetRate)
 				// Input Frames = len(floats) / channels
@@ -349,25 +349,19 @@ func runAudioLoop() error {
 				floats = newFloats
 			}
 
-			// 3. Downmix to Stereo if needed
-			if channels > 2 {
-				frames := len(floats) / channels
-				newFloats := make([]float32, frames*2)
+			// 3. Downmix to MONO for WAN bandwidth optimization
+			// Mono = half the bandwidth of Stereo
+			frames := len(floats) / channels
+			monoFloats := make([]float32, frames)
+			if channels >= 2 {
 				for i := 0; i < frames; i++ {
-					newFloats[i*2] = floats[i*channels]     // L
-					newFloats[i*2+1] = floats[i*channels+1] // R
+					// Average L+R for mono
+					monoFloats[i] = (floats[i*channels] + floats[i*channels+1]) / 2.0
 				}
-				floats = newFloats
-			} else if channels == 1 {
-				// Mono to Stereo
-				frames := len(floats)
-				newFloats := make([]float32, frames*2)
-				for i := 0; i < frames; i++ {
-					newFloats[i*2] = floats[i]
-					newFloats[i*2+1] = floats[i]
-				}
-				floats = newFloats
+			} else {
+				copy(monoFloats, floats)
 			}
+			floats = monoFloats
 
 			// 4. Convert to Int16
 			pcm := make([]int16, len(floats))

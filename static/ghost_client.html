@@ -354,8 +354,9 @@
         let audioContext = null;
         let audioEnabled = false;
         let audioNextTime = 0;
-        const AUDIO_SAMPLE_RATE = 48000;
-        const AUDIO_CHANNELS = 2;
+        // WAN Optimized: 16kHz Mono = 31 KB/s (vs 48kHz Stereo = 187 KB/s)
+        const AUDIO_SAMPLE_RATE = 16000;
+        const AUDIO_CHANNELS = 1;
 
         // Jitter buffer settings
         // Server sends ~50ms chunks. 
@@ -418,20 +419,18 @@
 
                     const data = event.data;
                     const pcmData = new Int16Array(data);
-                    const samples = pcmData.length / AUDIO_CHANNELS;
+                    const samples = pcmData.length; // Mono, so samples = length
                     if (samples <= 0) return;
 
-                    // Convert to Float32
-                    const left = new Float32Array(samples);
-                    const right = new Float32Array(samples);
+                    // Convert Mono Int16 to Float32
+                    const mono = new Float32Array(samples);
                     for (let i = 0; i < samples; i++) {
-                        left[i] = pcmData[i * 2] / 32768;
-                        right[i] = pcmData[i * 2 + 1] / 32768;
+                        mono[i] = pcmData[i] / 32768;
                     }
 
-                    const buffer = audioContext.createBuffer(2, samples, AUDIO_SAMPLE_RATE);
-                    buffer.copyToChannel(left, 0);
-                    buffer.copyToChannel(right, 1);
+                    // Create Mono buffer (1 channel)
+                    const buffer = audioContext.createBuffer(1, samples, AUDIO_SAMPLE_RATE);
+                    buffer.copyToChannel(mono, 0);
 
                     const source = audioContext.createBufferSource();
                     source.buffer = buffer;
